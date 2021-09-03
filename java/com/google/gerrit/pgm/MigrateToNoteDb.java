@@ -89,6 +89,17 @@ public class MigrateToNoteDb extends SiteProgram {
       usage = "Force state change of the migration if projects are skipped")
   private boolean forceStateChangeWithSkip;
 
+  @Option(name = "--gc", usage = "GC repositories regularly during the migration")
+  private boolean gc;
+
+  @Option(
+      name = "--shuffle-project-slices",
+      usage =
+          "Shuffle project slices to reduce memory"
+              + " allocation. This is especially useful if the site has a few large and many small"
+              + " repositories.")
+  private boolean shuffleProjectSlices;
+
   @Option(name = "--trial", usage = TRIAL_USAGE)
   private boolean trial;
 
@@ -151,6 +162,8 @@ public class MigrateToNoteDb extends SiteProgram {
               .setTrialMode(trial)
               .setForceRebuild(force)
               .setForceStateChangeWithSkip(forceStateChangeWithSkip)
+              .setGC(gc)
+              .setShuffleProjectSlices(shuffleProjectSlices)
               .setSequenceGap(sequenceGap)
               .setVerbose(verbose)
               .build()) {
