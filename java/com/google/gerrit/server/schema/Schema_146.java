@@ -40,28 +40,29 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import org.eclipse.jgit.internal.storage.file.FileRepository;
 import org.eclipse.jgit.internal.storage.file.GC;
+import org.eclipse.jgit.internal.storage.file.PackInserter;
+import org.eclipse.jgit.lib.BatchRefUpdate;
 import org.eclipse.jgit.lib.CommitBuilder;
-import org.eclipse.jgit.lib.Constants;
+import org.eclipse.jgit.lib.NullProgressMonitor;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ObjectInserter;
+import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.lib.Ref;
-import org.eclipse.jgit.lib.RefUpdate;
-import org.eclipse.jgit.lib.RefUpdate.Result;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.TextProgressMonitor;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevSort;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.storage.pack.PackConfig;
+import org.eclipse.jgit.transport.ReceiveCommand;
 
 /**
  * Make sure that for every account a user branch exists that has an initial empty commit with the
@@ -80,7 +81,8 @@ public class Schema_146 extends SchemaVersion {
   private final GitRepositoryManager repoManager;
   private final AllUsersName allUsersName;
   private final PersonIdent serverIdent;
-  private AtomicInteger i = new AtomicInteger();
+  private AtomicInteger migratedAccounts = new AtomicInteger();
+  private AtomicInteger packs = new AtomicInteger();
   private Stopwatch sw = Stopwatch.createStarted();
   ReentrantLock gcLock = new ReentrantLock();
   private int size;
@@ -120,50 +122,52 @@ public class Schema_146 extends SchemaVersion {
       throw new RuntimeException(e);
     }
     ui.message(
-        String.format("... (%.3f s) Migrated all %d accounts to schema 146", elapsed(), i.get()));
-    ui.message("Run full gc");
-    gc(ui);
-    ui.message(String.format("... (%.3f s) full gc completed", elapsed()));
+        String.format(
+            "... (%.3f s) Migrated all %d accounts to schema 146",
+            elapsed(), migratedAccounts.get()));
   }
 
-  private ExecutorService createExecutor(UpdateUI ui) {
-    int threads;
+  @Override
+  protected int getThreads() {
     try {
-      threads = Integer.parseInt(System.getProperty("threadcount"));
+      return Integer.parseInt(System.getProperty("threadcount"));
     } catch (NumberFormatException e) {
-      threads = Runtime.getRuntime().availableProcessors();
+      return super.getThreads();
     }
-    ui.message(String.format("... using %d threads ...", threads));
-    return Executors.newFixedThreadPool(threads);
   }
 
   private void processBatch(List<Entry<Account.Id, Timestamp>> batch, UpdateUI ui) {
     try (Repository repo = repoManager.openRepository(allUsersName);
-        RevWalk rw = new RevWalk(repo);
-        ObjectInserter oi = repo.newObjectInserter()) {
-      ObjectId emptyTree = emptyTree(oi);
+        ObjectInserter inserter = getPackInserterFirst(repo);
+        ObjectReader reader = inserter.newReader();
+        RevWalk rw = new RevWalk(reader)) {
+      BatchRefUpdate bru = repo.getRefDatabase().newBatchUpdate();
+      bru.setAllowNonFastForwards(true);
+      bru.setRefLogIdent(serverIdent);
+      bru.setRefLogMessage(getClass().getSimpleName(), true);
+      ObjectId emptyTree = emptyTree(inserter);
 
       for (Map.Entry<Account.Id, Timestamp> e : batch) {
-        String refName = RefNames.refsUsers(e.getKey());
+        Account.Id accountId = e.getKey();
+        Timestamp registeredOn = e.getValue();
+        String refName = RefNames.refsUsers(accountId);
         Ref ref = repo.exactRef(refName);
         if (ref != null) {
-          rewriteUserBranch(repo, rw, oi, emptyTree, ref, e.getValue());
+          rewriteUserBranch(rw, inserter, emptyTree, ref, registeredOn, bru);
         } else {
-          createUserBranch(repo, oi, emptyTree, e.getKey(), e.getValue());
-        }
-        int count = i.incrementAndGet();
-        showProgress(ui, count);
-        if (count % 1000 == 0) {
-          boolean runFullGc = count % 100000 == 0;
-          if (runFullGc) {
-            ui.message("Run full gc");
-          }
-          gc(repo, !runFullGc, ui);
-          if (runFullGc) {
-            ui.message(String.format("... (%.3f s) full gc completed", elapsed()));
-          }
+          createUserBranch(inserter, emptyTree, refName, registeredOn, bru);
         }
       }
+      if (!bru.getCommands().isEmpty()) {
+        inserter.flush();
+        bru.execute(rw, NullProgressMonitor.INSTANCE);
+        if (inserter instanceof PackInserter && packs.incrementAndGet() % 50 == 0) {
+          ui.message("Run full gc");
+          gc(ui);
+          ui.message(String.format("... (%.3f s) full gc completed", elapsed()));
+        }
+      }
+      showProgress(ui, migratedAccounts.addAndGet(batch.size()));
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -224,14 +228,13 @@ public class Schema_146 extends SchemaVersion {
   }
 
   private void rewriteUserBranch(
-      Repository repo,
       RevWalk rw,
       ObjectInserter oi,
       ObjectId emptyTree,
       Ref ref,
-      Timestamp registeredOn)
+      Timestamp registeredOn,
+      BatchRefUpdate bru)
       throws IOException {
-    ObjectId current = createInitialEmptyCommit(oi, emptyTree, registeredOn);
 
     rw.reset();
     rw.sort(RevSort.TOPO);
@@ -239,9 +242,14 @@ public class Schema_146 extends SchemaVersion {
     rw.markStart(rw.parseCommit(ref.getObjectId()));
 
     RevCommit c;
+    ObjectId current = null;
     while ((c = rw.next()) != null) {
       if (isInitialEmptyCommit(emptyTree, c)) {
         return;
+      }
+
+      if (current == null) {
+        current = createInitialEmptyCommit(oi, emptyTree, registeredOn);
       }
 
       CommitBuilder cb = new CommitBuilder();
@@ -254,62 +262,32 @@ public class Schema_146 extends SchemaVersion {
       current = oi.insert(cb);
     }
 
-    oi.flush();
-
-    RefUpdate ru = repo.updateRef(ref.getName());
-    ru.setExpectedOldObjectId(ref.getObjectId());
-    ru.setNewObjectId(current);
-    ru.setForceUpdate(true);
-    ru.setRefLogIdent(serverIdent);
-    ru.setRefLogMessage(getClass().getSimpleName(), true);
-    Result result = ru.update();
-    if (result != Result.FORCED) {
-      throw new IOException(
-          String.format("Failed to update ref %s: %s", ref.getName(), result.name()));
-    }
+    bru.addCommand(
+        new ReceiveCommand(
+            ref.getObjectId(), current, ref.getName(), ReceiveCommand.Type.UPDATE_NONFASTFORWARD));
   }
 
   public void createUserBranch(
-      Repository repo,
       ObjectInserter oi,
       ObjectId emptyTree,
-      Account.Id accountId,
-      Timestamp registeredOn)
+      String refName,
+      Timestamp registeredOn,
+      BatchRefUpdate bru)
       throws IOException {
     ObjectId id = createInitialEmptyCommit(oi, emptyTree, registeredOn);
-
-    String refName = RefNames.refsUsers(accountId);
-    RefUpdate ru = repo.updateRef(refName);
-    ru.setExpectedOldObjectId(ObjectId.zeroId());
-    ru.setNewObjectId(id);
-    ru.setRefLogIdent(serverIdent);
-    ru.setRefLogMessage(CREATE_ACCOUNT_MSG, false);
-    Result result = ru.update();
-    if (result != Result.NEW) {
-      throw new IOException(String.format("Failed to update ref %s: %s", refName, result.name()));
-    }
+    bru.addCommand(new ReceiveCommand(ObjectId.zeroId(), id, refName));
   }
 
   private ObjectId createInitialEmptyCommit(
       ObjectInserter oi, ObjectId emptyTree, Timestamp registrationDate) throws IOException {
-    PersonIdent ident = new PersonIdent(serverIdent, registrationDate);
-
-    CommitBuilder cb = new CommitBuilder();
-    cb.setTreeId(emptyTree);
-    cb.setCommitter(ident);
-    cb.setAuthor(ident);
-    cb.setMessage(CREATE_ACCOUNT_MSG);
-    return oi.insert(cb);
+    return oi.insert(
+        buildCommit(new PersonIdent(serverIdent, registrationDate), emptyTree, CREATE_ACCOUNT_MSG));
   }
 
   private boolean isInitialEmptyCommit(ObjectId emptyTree, RevCommit c) {
     return c.getParentCount() == 0
         && c.getTree().equals(emptyTree)
         && c.getShortMessage().equals(CREATE_ACCOUNT_MSG);
-  }
-
-  private static ObjectId emptyTree(ObjectInserter oi) throws IOException {
-    return oi.insert(Constants.OBJ_TREE, new byte[] {});
   }
 
   private Map<Account.Id, Timestamp> scanAccounts(ReviewDb db, UpdateUI ui) throws SQLException {

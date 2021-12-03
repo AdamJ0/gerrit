@@ -50,6 +50,8 @@ import java.util.Set;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.lib.BatchRefUpdate;
 import org.eclipse.jgit.lib.NullProgressMonitor;
+import org.eclipse.jgit.lib.ObjectInserter;
+import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -81,7 +83,7 @@ public class Schema_139 extends SchemaVersion {
         ResultSet rs =
             stmt.executeQuery(
                 "SELECT "
-                    + "account_id, "
+                    + "account_project_watches.account_id, "
                     + "project_name, "
                     + "filter, "
                     + "notify_abandoned_changes, "
@@ -89,7 +91,8 @@ public class Schema_139 extends SchemaVersion {
                     + "notify_new_changes, "
                     + "notify_new_patch_sets, "
                     + "notify_submitted_changes "
-                    + "FROM account_project_watches")) {
+                    + "FROM account_project_watches "
+                    + "JOIN accounts ON account_project_watches.account_id=accounts.account_id")) {
       while (rs.next()) {
         Account.Id accountId = new Account.Id(rs.getInt(1));
         ProjectWatch.Builder b =
@@ -110,7 +113,9 @@ public class Schema_139 extends SchemaVersion {
     }
 
     try (Repository git = repoManager.openRepository(allUsersName);
-        RevWalk rw = new RevWalk(git)) {
+        ObjectInserter inserter = getPackInserterFirst(git);
+        ObjectReader reader = inserter.newReader();
+        RevWalk rw = new RevWalk(reader)) {
       BatchRefUpdate bru = git.getRefDatabase().newBatchUpdate();
       bru.setRefLogIdent(serverUser);
       bru.setRefLogMessage(MSG, false);
@@ -156,9 +161,10 @@ public class Schema_139 extends SchemaVersion {
                   .deleteProjectWatches(accountConfig.getProjectWatches().keySet())
                   .updateProjectWatches(projectWatches)
                   .build());
-          accountConfig.commit(md);
+          accountConfig.commit(md, inserter, reader, rw);
         }
       }
+      inserter.flush();
       bru.execute(rw, NullProgressMonitor.INSTANCE);
     } catch (IOException | ConfigInvalidException ex) {
       throw new OrmException(ex);

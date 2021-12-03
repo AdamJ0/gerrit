@@ -32,6 +32,7 @@ import com.google.gerrit.pgm.util.SiteProgram;
 import com.google.gerrit.pgm.util.ThreadLimiter;
 import com.google.gerrit.server.change.ChangeResource;
 import com.google.gerrit.server.config.GerritServerConfig;
+import com.google.gerrit.server.index.AutoFlush;
 import com.google.gerrit.server.index.IndexModule;
 import com.google.gerrit.server.index.IndexModule.IndexType;
 import com.google.gerrit.server.index.change.ChangeSchemaDefinitions;
@@ -54,8 +55,10 @@ import org.eclipse.jgit.util.io.NullOutputStream;
 import org.kohsuke.args4j.Option;
 
 public class Reindex extends SiteProgram {
-  @Option(name = "--threads", usage = "Number of threads to use for indexing")
-  private int threads = Runtime.getRuntime().availableProcessors();
+  @Option(
+      name = "--threads",
+      usage = "Number of threads to use for indexing. Default is index.batchThreads from config.")
+  private int threads = 0;
 
   @Option(
       name = "--changes-schema-version",
@@ -153,7 +156,9 @@ public class Reindex extends SiteProgram {
     Module indexModule;
     switch (IndexModule.getIndexType(dbInjector)) {
       case LUCENE:
-        indexModule = LuceneIndexModule.singleVersionWithExplicitVersions(versions, threads, slave);
+        indexModule =
+            LuceneIndexModule.singleVersionWithExplicitVersions(
+                versions, threads, slave, AutoFlush.DISABLED);
         break;
       case ELASTICSEARCH:
         indexModule =

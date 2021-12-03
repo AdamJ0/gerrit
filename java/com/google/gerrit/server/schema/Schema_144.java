@@ -34,8 +34,13 @@ import java.sql.Statement;
 import java.util.HashSet;
 import java.util.Set;
 import org.eclipse.jgit.errors.ConfigInvalidException;
+import org.eclipse.jgit.lib.BatchRefUpdate;
+import org.eclipse.jgit.lib.NullProgressMonitor;
+import org.eclipse.jgit.lib.ObjectInserter;
+import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.revwalk.RevWalk;
 
 public class Schema_144 extends SchemaVersion {
   private static final String COMMIT_MSG = "Import external IDs from ReviewDb";
@@ -63,11 +68,12 @@ public class Schema_144 extends SchemaVersion {
         ResultSet rs =
             stmt.executeQuery(
                 "SELECT "
-                    + "account_id, "
+                    + "account_external_ids.account_id, "
                     + "email_address, "
                     + "password, "
                     + "external_id "
-                    + "FROM account_external_ids")) {
+                    + "FROM account_external_ids "
+                    + "JOIN accounts ON account_external_ids.account_id=accounts.account_id")) {
       while (rs.next()) {
         Account.Id accountId = new Account.Id(rs.getInt(1));
         String email = rs.getString(2);
@@ -79,16 +85,22 @@ public class Schema_144 extends SchemaVersion {
     }
 
     try {
-      try (Repository repo = repoManager.openRepository(allUsersName)) {
+      try (Repository repo = repoManager.openRepository(allUsersName);
+          ObjectInserter inserter = getPackInserterFirst(repo);
+          ObjectReader reader = inserter.newReader();
+          RevWalk rw = new RevWalk(reader)) {
+        BatchRefUpdate bru = repo.getRefDatabase().newBatchUpdate();
         ExternalIdNotes extIdNotes = ExternalIdNotes.loadNoCacheUpdate(allUsersName, repo);
         extIdNotes.upsert(toAdd);
         try (MetaDataUpdate metaDataUpdate =
-            new MetaDataUpdate(GitReferenceUpdated.DISABLED, allUsersName, repo)) {
+            new MetaDataUpdate(GitReferenceUpdated.DISABLED, allUsersName, repo, bru)) {
           metaDataUpdate.getCommitBuilder().setAuthor(serverIdent);
           metaDataUpdate.getCommitBuilder().setCommitter(serverIdent);
           metaDataUpdate.getCommitBuilder().setMessage(COMMIT_MSG);
-          extIdNotes.commit(metaDataUpdate);
+          extIdNotes.commit(metaDataUpdate, inserter, reader, rw);
         }
+        inserter.flush();
+        bru.execute(rw, NullProgressMonitor.INSTANCE);
       }
     } catch (IOException | ConfigInvalidException e) {
       throw new OrmException("Failed to migrate external IDs to NoteDb", e);
