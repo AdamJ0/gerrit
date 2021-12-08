@@ -15,6 +15,7 @@
 package com.google.gerrit.server.notedb;
 
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.eclipse.jgit.lib.Constants.OBJ_BLOB;
 import static org.junit.Assert.fail;
@@ -26,12 +27,16 @@ import com.google.common.util.concurrent.Runnables;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.reviewdb.client.RefNames;
 import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
+import com.google.gerrit.server.replication.AbstractReplicationTesting;
+import com.google.gerrit.server.replication.TestingReplicatedEventsCoordinator;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.testing.InMemoryRepositoryManager;
 import com.google.gwtorm.server.OrmException;
 import java.io.IOException;
-import java.util.concurrent.ExecutionException;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.junit.TestRepository;
 import org.eclipse.jgit.lib.ObjectId;
@@ -39,12 +44,13 @@ import org.eclipse.jgit.lib.ObjectInserter;
 import org.eclipse.jgit.lib.RefUpdate;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-public class RepoSequenceTest {
+public class RepoSequenceTest extends AbstractReplicationTesting {
   // Don't sleep in tests.
   private static final Retryer<RefUpdate.Result> RETRYER =
       RepoSequence.retryerBuilder().withBlockStrategy(t -> {}).build();
@@ -59,6 +65,14 @@ public class RepoSequenceTest {
     repoManager = new InMemoryRepositoryManager();
     project = new Project.NameKey("project");
     repoManager.createRepository(project);
+
+    // make sure we clear out and have a new coordinator for each test -
+    // sorry but otherwise we would need to be clearing out lists which would change depend on ordering!
+    Properties testingProperties = new Properties();
+    testingProperties.put(GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE, "2");
+
+    dummyTestCoordinator = new TestingReplicatedEventsCoordinator(testingProperties);
+    Assert.assertNotNull(dummyTestCoordinator);
   }
 
   @Test
@@ -356,6 +370,7 @@ public class RepoSequenceTest {
       Runnable afterReadRef,
       Retryer<RefUpdate.Result> retryer) {
     return new RepoSequence(
+        dummyTestCoordinator,
         repoManager,
         GitReferenceUpdated.DISABLED,
         project,

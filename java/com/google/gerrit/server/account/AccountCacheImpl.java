@@ -27,13 +27,15 @@ import com.google.gerrit.server.account.externalids.ExternalId;
 import com.google.gerrit.server.account.externalids.ExternalIds;
 import com.google.gerrit.server.cache.CacheModule;
 import com.google.gerrit.server.config.AllUsersName;
+import com.google.gerrit.server.index.account.AccountIndexer;
 import com.google.gerrit.server.logging.TraceContext;
 import com.google.gerrit.server.logging.TraceContext.TraceTimer;
-import com.google.gerrit.server.replication.ReplicatedCacheManager;
-import com.google.gerrit.server.replication.Replicator;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
+import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingCacheEventsFeed;
 import com.google.gerrit.server.util.time.TimeUtil;
 import com.google.inject.Inject;
 import com.google.inject.Module;
+import com.google.inject.Provider;
 import com.google.inject.Singleton;
 import com.google.inject.TypeLiteral;
 import com.google.inject.name.Named;
@@ -78,6 +80,8 @@ public class AccountCacheImpl implements AccountCache {
   private final AllUsersName allUsersName;
   private final ExternalIds externalIds;
   private final LoadingCache<Account.Id, Optional<AccountState>> byId;
+  private final Provider<AccountIndexer> indexer;
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
   private final ExecutorService executor;
 
   @Inject
@@ -85,11 +89,15 @@ public class AccountCacheImpl implements AccountCache {
       AllUsersName allUsersName,
       ExternalIds externalIds,
       @Named(BYID_NAME) LoadingCache<Account.Id, Optional<AccountState>> byId,
-      @FanOutExecutor ExecutorService executor) {
+      @FanOutExecutor ExecutorService executor,
+      Provider<AccountIndexer> indexer,
+      ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     this.allUsersName = allUsersName;
     this.externalIds = externalIds;
     this.byId = byId;
+    this.indexer = indexer;
     this.executor = executor;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
 
     attachToReplication();
   }
@@ -98,11 +106,26 @@ public class AccountCacheImpl implements AccountCache {
    * N.B. we do not need to hook in the cache listeners if replication is disabled.
    */
   final void attachToReplication() {
-    if(Replicator.isReplicationDisabled()){
+    if( ! replicatedEventsCoordinator.isReplicationEnabled() ){
+      logger.atInfo().log("Replication is disabled - not hooking in AccountCache listeners.");
       return;
     }
-    ReplicatedCacheManager.watchCache(BYID_NAME, this.byId);
+    replicatedEventsCoordinator.getReplicatedIncomingCacheEventProcessor().watchCache(BYID_NAME, this.byId);
   }
+
+
+  /**
+   * Asks the replicated coordinator for the instance of the ReplicatedOutgoingCacheEventsFeed and calls
+   * replicateEvictionFromCache on it.
+   * @param name : Name of the cache to evict from.
+   * @param value : Value to evict from the cache.
+   */
+  private void replicateEvictionFromCache(String name, Object value) {
+    if(replicatedEventsCoordinator.isReplicationEnabled()) {
+      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value);
+    }
+  }
+
 
   @Override
   public AccountState getEvenIfMissing(Account.Id accountId) {
@@ -177,7 +200,7 @@ public class AccountCacheImpl implements AccountCache {
     if (accountId != null) {
       logger.atFine().log("Evict account %d", accountId.get());
       byId.invalidate(accountId);
-      ReplicatedCacheManager.replicateEvictionFromCache(BYID_NAME, accountId);
+      replicateEvictionFromCache(BYID_NAME, accountId);
     }
   }
 
@@ -187,7 +210,7 @@ public class AccountCacheImpl implements AccountCache {
       logger.atFine().log("Evict account %d", accountId.get());
       byId.invalidate(accountId);
       if (shouldReplicate) {
-        ReplicatedCacheManager.replicateEvictionFromCache(BYID_NAME, accountId);
+        replicateEvictionFromCache(BYID_NAME, accountId);
       }
     }
   }
@@ -195,11 +218,7 @@ public class AccountCacheImpl implements AccountCache {
   @Override
   public void evictAll() {
     logger.atFine().log("Evict all accounts");
-
-    if (Replicator.isReplicationEnabled()) {
-        ReplicatedCacheManager.replicateEvictionFromCache(BYID_NAME, ReplicatedCacheManager.evictAllWildCard);
-    }
-
+    replicateEvictionFromCache(BYID_NAME, ReplicatedOutgoingCacheEventsFeed.evictAllWildCard);
     byId.invalidateAll();
   }
 

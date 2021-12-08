@@ -42,8 +42,7 @@ import com.google.gerrit.server.notedb.NotesMigration;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
 import com.google.gerrit.server.project.NoSuchChangeException;
 import com.google.gerrit.server.query.change.ChangeData;
-import com.google.gerrit.server.replication.ReplicatedIndexEventManager;
-import com.google.gerrit.server.replication.Replicator;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.server.util.RequestContext;
 import com.google.gerrit.server.util.ThreadLocalRequestContext;
 import com.google.gwtorm.server.OrmException;
@@ -110,7 +109,8 @@ public class ChangeIndexer {
   private final boolean autoReindexIfStale;
   private final boolean replicateAutoReindexIfStale;
   private final AllProjectsName allProjectsName;
-
+  private final Provider<ReplicatedEventsCoordinator> providedEventsCoordinator;
+  private ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
 
   private final Set<IndexTask> queuedIndexTasks =
@@ -131,7 +131,8 @@ public class ChangeIndexer {
       @IndexExecutor(BATCH) ListeningExecutorService batchExecutor,
       @Assisted ListeningExecutorService executor,
       @Assisted ChangeIndex index,
-      AllProjectsNameProvider allProjectsNameProvider) {
+      AllProjectsNameProvider allProjectsNameProvider,
+      Provider<ReplicatedEventsCoordinator> providedEventsCoordinator) {
     this.executor = executor;
     this.schemaFactory = schemaFactory;
     this.notesMigration = notesMigration;
@@ -146,6 +147,8 @@ public class ChangeIndexer {
     this.index = index;
     this.indexes = null;
     this.allProjectsName = allProjectsNameProvider.get();
+    this.providedEventsCoordinator = providedEventsCoordinator;
+
   }
 
   @AssistedInject
@@ -161,7 +164,8 @@ public class ChangeIndexer {
       @IndexExecutor(BATCH) ListeningExecutorService batchExecutor,
       @Assisted ListeningExecutorService executor,
       @Assisted ChangeIndexCollection indexes,
-      AllProjectsNameProvider allProjectsNameProvider) {
+      AllProjectsNameProvider allProjectsNameProvider,
+      Provider<ReplicatedEventsCoordinator> providedEventsCoordinator) {
     this.executor = executor;
     this.schemaFactory = schemaFactory;
     this.notesMigration = notesMigration;
@@ -176,6 +180,51 @@ public class ChangeIndexer {
     this.index = null;
     this.indexes = indexes;
     this.allProjectsName = allProjectsNameProvider.get();
+    this.providedEventsCoordinator = providedEventsCoordinator;
+  }
+
+
+  public ReplicatedEventsCoordinator getProvidedEventsCoordinator(){
+    if(replicatedEventsCoordinator == null){
+      replicatedEventsCoordinator = providedEventsCoordinator.get();
+    }
+    return replicatedEventsCoordinator;
+  }
+
+
+  /**
+   * Queue an index deletion
+   * @param changeId
+   * @param projectName
+   * @throws IOException
+   */
+  public void queueIndexDeleteEventForReplication(Change.Id changeId, final String projectName) throws IOException {
+    if (! getProvidedEventsCoordinator().isReplicationEnabled()) {
+      logger.atInfo().log("Replication is disabled - not queuing index deletion event for replication");
+      return;
+    }
+
+    getProvidedEventsCoordinator().getReplicatedOutgoingIndexEventsFeed()
+        .queueReplicationIndexDeletionEvent(changeId.get(), projectName);
+  }
+
+
+  /**
+   * Queues the index event for replication by adding the index event to the outgoing index events feed.
+   * @param change : Change instance
+   * @throws IOException
+   */
+  public void queueIndexEventForReplication(Change change, boolean safeToIgnoreMissingChange) throws IOException {
+    if (! getProvidedEventsCoordinator().isReplicationEnabled()) {
+      logger.atInfo().log("Replication is disabled - not queuing index event for replication");
+      return;
+    }
+
+    getProvidedEventsCoordinator().getReplicatedOutgoingIndexEventsFeed()
+        .queueReplicationIndexEvent(change.getId().get(),
+            change.getProject().get(),
+            change.getLastUpdatedOn(),
+            safeToIgnoreMissingChange);
   }
 
   private static boolean autoReindexIfStale(Config cfg) {
@@ -197,7 +246,7 @@ public class ChangeIndexer {
       Project.NameKey project, Change.Id id) {
 
     // Default behaviour is to call with replication enabled
-    return indexAsyncImpl(project, id, Replicator.isReplicationEnabled());
+    return indexAsyncImpl(project, id, getProvidedEventsCoordinator().isReplicationEnabled());
   }
 
   /**
@@ -245,7 +294,7 @@ public class ChangeIndexer {
   @SuppressWarnings("deprecation")
   public com.google.common.util.concurrent.CheckedFuture<?, IOException> indexAsync(
       Project.NameKey project, Collection<Change.Id> ids) {
-    return indexAsyncImpl(project, ids, Replicator.isReplicationEnabled());
+    return indexAsyncImpl(project, ids, getProvidedEventsCoordinator().isReplicationEnabled());
   }
 
   /**
@@ -303,7 +352,7 @@ public class ChangeIndexer {
    * @param cd change to index.
    */
   public void index(ChangeData cd) throws IOException {
-    index(cd, Replicator.isReplicationEnabled());
+    index(cd, getProvidedEventsCoordinator().isReplicationEnabled());
   }
 
   /**
@@ -324,7 +373,7 @@ public class ChangeIndexer {
    * @param cd change to index.
    */
   private void index(ChangeData cd, boolean replicationEnabled) throws IOException {
-    indexImpl(cd, replicationEnabled);
+    indexImpl(cd, replicationEnabled, false);
 
     // Always double-check whether the change might be stale immediately after
     // interactively indexing it. This fixes up the case where two writers write
@@ -347,7 +396,7 @@ public class ChangeIndexer {
     autoReindexIfStale(cd);
   }
 
-  private void indexImpl(ChangeData cd, boolean replicationEnabled) throws IOException {
+  private void indexImpl(ChangeData cd, boolean replicationEnabled, boolean safeToIgnoreMissing) throws IOException {
     logger.atFine().log("Replace change %d in index.", cd.getId().get());
     for (Index<?, ChangeData> i : getWriteIndexes()) {
       try (TraceTimer traceTimer =
@@ -364,7 +413,7 @@ public class ChangeIndexer {
     // 2) replication is disabled systemwide by the disable env flag - again we will get replicationEnabled=false
     // 3) We are not called from the main Daemon context ( ReplicatedIndexEventManager will be null )
     // either way go no further and Dont replicate these changes.
-    if (replicationEnabled == false || ( ReplicatedIndexEventManager.getInstance() == null )) {
+    if (!replicationEnabled) {
       return;
     }
 
@@ -372,7 +421,7 @@ public class ChangeIndexer {
     try {
       Change change = cd.change();
       logger.atFine().log ("RC Finished SYNC index %d, queuing for replication...", change.getId().get());
-      ReplicatedIndexEventManager.queueReplicationIndexEvent(change.getId().get(), change.getProject().get(), change.getLastUpdatedOn());
+      queueIndexEventForReplication(change, safeToIgnoreMissing);
     } catch (OrmException e) {
       logger.atSevere().withCause(e).log("RC Could not sync'ly reindex change! EVENT LOST %s", cd);
     }
@@ -438,7 +487,7 @@ public class ChangeIndexer {
   @SuppressWarnings("deprecation")
   public com.google.common.util.concurrent.CheckedFuture<?, IOException> deleteAsync(Project.NameKey project,
                                                                                      Change.Id id) {
-    return deleteAsyncImpl(project, id, Replicator.isReplicationEnabled());
+    return deleteAsyncImpl(project, id, getProvidedEventsCoordinator().isReplicationEnabled());
   }
 
   /**
@@ -478,7 +527,7 @@ public class ChangeIndexer {
    * @param id change ID to delete.
    */
   public void delete(Change.Id id) throws IOException {
-    new DeleteTask(allProjectsName, id, Replicator.isReplicationEnabled()).call();
+    new DeleteTask(allProjectsName, id, getProvidedEventsCoordinator().isReplicationEnabled()).call();
   }
 
   /**
@@ -487,7 +536,7 @@ public class ChangeIndexer {
    * @param id change ID to delete.
    */
   public void delete(Project.NameKey project, Change.Id id) throws IOException {
-    new DeleteTask(project, id, Replicator.isReplicationEnabled()).call();
+    new DeleteTask(project, id, getProvidedEventsCoordinator().isReplicationEnabled()).call();
   }
 
   /**
@@ -692,12 +741,12 @@ public class ChangeIndexer {
         }
       }
       fireChangeDeletedFromIndexEvent(id.get());
-      if (replicationEnabled == false || ( ReplicatedIndexEventManager.getInstance() == null )) {
+      if (!replicationEnabled) {
         return null;
       }
       // otherwise replicated these index changes now.z
       logger.atFine().log ("RC Finished deletion index %d, queuing for replication...", id.get());
-      ReplicatedIndexEventManager.queueReplicationIndexDeletionEvent(id.get(), project.get());
+      queueIndexDeleteEventForReplication(id, project.get());
       return null;
     }
   }
@@ -718,7 +767,7 @@ public class ChangeIndexer {
           logger.atFine().log("Change %s in project %s found to be stale reindexing replicated = %s .", id,
                               project.get(),
                               replicateAutoReindexIfStale);
-          indexImpl(newChangeData(db.get(), project, id), replicateAutoReindexIfStale);
+          indexImpl(newChangeData(db.get(), project, id), replicateAutoReindexIfStale, false);
           return true;
         }
       } catch (NoSuchChangeException nsce) {

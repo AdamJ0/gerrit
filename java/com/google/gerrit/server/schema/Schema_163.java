@@ -20,6 +20,7 @@ import com.google.gerrit.server.config.AllUsersName;
 import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
 import com.google.gerrit.server.git.GitRepositoryManager;
 import com.google.gerrit.server.notedb.RepoSequence;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Inject;
 import com.google.inject.Provider;
@@ -29,13 +30,15 @@ import java.sql.SQLException;
 public class Schema_163 extends SchemaVersion {
   private final GitRepositoryManager repoManager;
   private final AllUsersName allUsersName;
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
   @Inject
   Schema_163(
-      Provider<Schema_162> prior, GitRepositoryManager repoManager, AllUsersName allUsersName) {
+      Provider<Schema_162> prior, GitRepositoryManager repoManager, AllUsersName allUsersName, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     super(prior);
     this.repoManager = repoManager;
     this.allUsersName = allUsersName;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   @Override
@@ -44,6 +47,7 @@ public class Schema_163 extends SchemaVersion {
     RepoSequence.Seed groupSeed = db::nextAccountGroupId;
     RepoSequence groupSeq =
         new RepoSequence(
+            replicatedEventsCoordinator,
             repoManager,
             GitReferenceUpdated.DISABLED,
             allUsersName,

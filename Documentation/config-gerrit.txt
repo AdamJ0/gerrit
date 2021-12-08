@@ -20,6 +20,22 @@ Sample `etc/gerrit.config`:
   directory = /var/cache/gerrit
 ----
 
+[[wandisco]]
+=== Section wandisco
+
+[[wandisco.gerritmsReplicationDisabled]]wandisco.gerritmsReplicationDisabled::
++
+Boolean to enable or disable WANdisco replication.
+When set to true, WANdisco replication is disabled and Gerrit will run in standard vanilla.
+Disabling replication will prevent the replication of project, account and change indexing
+and caching. It also means that gerrit server events will not be replicated.
++
+NOTE: This flag is set as part of the GerritServerConfig instance as part of the AbstractDaemonTest
+class to prevent replication in integration tests.
+
++
+Default is false, replication enabled.
+
 [[reloadConfig]]
 === Reload `etc/gerrit.config`
 Some properties support being reloaded without restart when a `reload config`

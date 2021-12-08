@@ -72,6 +72,7 @@ import com.google.gerrit.server.notedb.RepoSequence;
 import com.google.gerrit.server.notedb.rebuild.ChangeRebuilder.NoPatchSetsException;
 import com.google.gerrit.server.project.NoSuchChangeException;
 import com.google.gerrit.server.project.ProjectCache;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.server.update.ChainedReceiveCommands;
 import com.google.gerrit.server.update.RefUpdateUtil;
 import com.google.gerrit.server.util.ManualRequestContext;
@@ -97,6 +98,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
+
+import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.internal.storage.file.FileRepository;
@@ -174,6 +177,7 @@ public class NoteDbMigrator implements AutoCloseable {
     private final PrimaryStorageMigrator primaryStorageMigrator;
     private final DynamicSet<NotesMigrationStateListener> listeners;
     private final ProjectCache projectCache;
+    private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
     private int threads;
     private ImmutableList<Project.NameKey> projects = ImmutableList.of();
@@ -206,7 +210,8 @@ public class NoteDbMigrator implements AutoCloseable {
         MutableNotesMigration globalNotesMigration,
         PrimaryStorageMigrator primaryStorageMigrator,
         DynamicSet<NotesMigrationStateListener> listeners,
-        ProjectCache projectCache) {
+        ProjectCache projectCache,
+        ReplicatedEventsCoordinator replicatedEventsCoordinator) {
       // Reload gerrit.config/notedb.config on each migrator invocation, in case a previous
       // migration in the same process modified the on-disk contents. This ensures the defaults for
       // trial/autoMigrate get set correctly below.
@@ -229,6 +234,7 @@ public class NoteDbMigrator implements AutoCloseable {
       this.projectCache = projectCache;
       this.trial = getTrialMode(cfg);
       this.autoMigrate = getAutoMigrate(cfg);
+      this.replicatedEventsCoordinator = replicatedEventsCoordinator;
     }
 
     /**
@@ -446,7 +452,8 @@ public class NoteDbMigrator implements AutoCloseable {
           forceStateChangeWithSkip,
           sequenceGap >= 0 ? sequenceGap : Sequences.getChangeSequenceGap(cfg),
           autoMigrate,
-          verbose);
+          verbose,
+          replicatedEventsCoordinator);
     }
   }
 
@@ -497,6 +504,7 @@ public class NoteDbMigrator implements AutoCloseable {
   private final MutableNotesMigration globalNotesMigration;
   private final PrimaryStorageMigrator primaryStorageMigrator;
   private final DynamicSet<NotesMigrationStateListener> listeners;
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
   private final ListeningExecutorService executor;
   private final ImmutableList<Project.NameKey> projects;
@@ -541,7 +549,8 @@ public class NoteDbMigrator implements AutoCloseable {
       boolean forceStateChangeWithSkip,
       int sequenceGap,
       boolean autoMigrate,
-      boolean verbose)
+      boolean verbose,
+      ReplicatedEventsCoordinator replicatedEventsCoordinator)
       throws MigrationException {
     if (ImmutableList.of(!changes.isEmpty(), !projects.isEmpty(), !skipProjects.isEmpty()).stream()
             .filter(e -> e)
@@ -578,6 +587,7 @@ public class NoteDbMigrator implements AutoCloseable {
     this.sequenceGap = sequenceGap;
     this.autoMigrate = autoMigrate;
     this.verbose = verbose;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
 
     // Stack notedb.config over gerrit.config, in the same way as GerritServerConfigProvider.
     this.gerritConfig = new FileBasedConfig(sitePaths.gerrit_config.toFile(), FS.detect());
@@ -689,6 +699,7 @@ public class NoteDbMigrator implements AutoCloseable {
 
       RepoSequence seq =
           new RepoSequence(
+              replicatedEventsCoordinator,
               repoManager,
               GitReferenceUpdated.DISABLED,
               allProjects,

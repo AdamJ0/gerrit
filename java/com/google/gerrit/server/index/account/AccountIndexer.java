@@ -15,7 +15,7 @@
 package com.google.gerrit.server.index.account;
 
 import com.google.gerrit.reviewdb.client.Account;
-import com.google.gerrit.server.replication.ReplicatedAccountIndexer;
+import com.google.gerrit.server.replication.customevents.ReplicatedAccountIndexer;
 
 import java.io.IOException;
 

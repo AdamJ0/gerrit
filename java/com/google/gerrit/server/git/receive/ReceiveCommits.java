@@ -139,7 +139,7 @@ import com.google.gerrit.server.project.ProjectConfig;
 import com.google.gerrit.server.project.ProjectState;
 import com.google.gerrit.server.query.change.ChangeData;
 import com.google.gerrit.server.query.change.InternalChangeQuery;
-import com.google.gerrit.server.replication.Replicator;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.server.submit.MergeOp;
 import com.google.gerrit.server.submit.MergeOpRepoManager;
 import com.google.gerrit.server.submit.SubmoduleException;
@@ -369,6 +369,9 @@ class ReceiveCommits {
   private MessageSender messageSender;
   private ResultChangeIds resultChangeIds;
 
+  private ReplicatedEventsCoordinator replicatedEventsCoordinator;
+
+
   @Inject
   ReceiveCommits(
       AccountResolver accountResolver,
@@ -410,7 +413,8 @@ class ReceiveCommits {
       @Assisted ReceivePack rp,
       @Assisted AllRefsWatcher allRefsWatcher,
       @Nullable @Assisted MessageSender messageSender,
-      @Assisted ResultChangeIds resultChangeIds)
+      @Assisted ResultChangeIds resultChangeIds,
+      ReplicatedEventsCoordinator replicatedEventsCoordinator)
       throws IOException {
     // Injected fields.
     this.accountResolver = accountResolver;
@@ -478,6 +482,7 @@ class ReceiveCommits {
     // Handles for outputting back over the wire to the end user.
     this.messageSender = messageSender != null ? messageSender : new ReceivePackMessageSender();
     this.resultChangeIds = resultChangeIds;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   void init() {
@@ -661,7 +666,8 @@ class ReceiveCommits {
    * @param commands
    */
   private void checkAndSendOkMessage(Collection<ReceiveCommand> commands) {
-    final String okMessage = Replicator.isReplicationDisabled() ? "Update successful" : "GitMS - update replicated.";
+    final String okMessage = !replicatedEventsCoordinator.getReplicatedConfiguration()
+        .getConfigureReplication().isReplicationEnabled() ? "Update successful" : "GitMS - update replicated.";
 
     if (verifyCommandsOk(commands)) {
       logger.atFine().log("Handling success - no errors.");
@@ -680,7 +686,8 @@ class ReceiveCommits {
    * @param message
    */
   private void checkAndLogException(final Collection<ReceiveCommand> commands, final String message) {
-    if (!Replicator.isReplicationDisabled()) {
+    if (replicatedEventsCoordinator.getReplicatedConfiguration()
+        .getConfigureReplication().isReplicationEnabled()) {
       if (commands.stream().anyMatch(c -> c.getResult() == NOT_ATTEMPTED)) {
         logger.atFine().log("Handling failure to replicate: %s.", message);
         // We're using addMessage here to delay writing the atomic replication error until after the progress monitor is

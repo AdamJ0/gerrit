@@ -27,10 +27,8 @@
 
 package com.google.gerrit.server.events;
 
-import com.google.gerrit.server.replication.Replicator;
 import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
 
-import java.util.Objects;
 
 public abstract class Event extends ReplicatedEvent {
   public final String type;
@@ -45,9 +43,6 @@ public abstract class Event extends ReplicatedEvent {
 
   protected Event(String type) {
     this.type = type;
-    if(!Replicator.isReplicationDisabled()) {
-      setNodeIdentity(Objects.requireNonNull(Replicator.getInstance()).getThisNodeIdentity());
-    }
   }
 
   public String getType() {

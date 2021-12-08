@@ -31,6 +31,7 @@ import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
 import com.google.gerrit.server.git.GitRepositoryManager;
 import com.google.gerrit.server.notedb.NotesMigration;
 import com.google.gerrit.server.notedb.RepoSequence;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Inject;
 import com.google.inject.Provider;
@@ -61,6 +62,7 @@ public class Sequences {
   private final RepoSequence changeSeq;
   private final RepoSequence groupSeq;
   private final Timer2<SequenceType, Boolean> nextIdLatency;
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
   @Inject
   public Sequences(
@@ -71,10 +73,11 @@ public class Sequences {
       GitReferenceUpdated gitRefUpdated,
       AllProjectsName allProjects,
       AllUsersName allUsers,
-      MetricMaker metrics) {
+      MetricMaker metrics,
+      ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     this.db = db;
     this.migration = migration;
-
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
 
     int sequenceRetryMaxTimeoutSecs = cfg.getInt("noteDb", "sequenceRetryMaxTimeoutSecs", 30);
     RepoSequence.setSequenceRetryMaxTimeoutSecs(sequenceRetryMaxTimeoutSecs);
@@ -82,6 +85,7 @@ public class Sequences {
     int accountBatchSize = cfg.getInt("noteDb", "accounts", "sequenceBatchSize", 1);
     accountSeq =
         new RepoSequence(
+            replicatedEventsCoordinator,
             repoManager,
             gitRefUpdated,
             allUsers,
@@ -95,12 +99,19 @@ public class Sequences {
     int changeBatchSize = cfg.getInt("noteDb", "changes", "sequenceBatchSize", 20);
     changeSeq =
         new RepoSequence(
-            repoManager, gitRefUpdated, allProjects, NAME_CHANGES, changeSeed, changeBatchSize);
+            replicatedEventsCoordinator,
+            repoManager,
+            gitRefUpdated,
+            allProjects,
+            NAME_CHANGES,
+            changeSeed,
+            changeBatchSize);
 
     RepoSequence.Seed groupSeed = this::nextGroupId;
     int groupBatchSize = cfg.getInt("noteDb", "groups", "sequenceBatchSize", 1);
     groupSeq =
         new RepoSequence(
+            replicatedEventsCoordinator,
             repoManager,
             gitRefUpdated,
             allUsers,

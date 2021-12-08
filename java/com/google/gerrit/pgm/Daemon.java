@@ -111,8 +111,10 @@ import com.google.gerrit.server.permissions.DefaultPermissionBackendModule;
 import com.google.gerrit.server.plugins.PluginGuiceEnvironment;
 import com.google.gerrit.server.plugins.PluginModule;
 import com.google.gerrit.server.project.DefaultProjectNameLockManager;
-import com.google.gerrit.server.replication.ReplicatedEventsManager;
-import com.google.gerrit.server.replication.ReplicatedIndexEventManager;
+import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
+import com.google.gerrit.server.replication.modules.DummyReplicationModule;
+import com.google.gerrit.server.replication.modules.ReplicationModule;
 import com.google.gerrit.server.restapi.RestApiModule;
 import com.google.gerrit.server.schema.DataSourceProvider;
 import com.google.gerrit.server.schema.InMemoryAccountPatchReviewStore;
@@ -379,7 +381,12 @@ public class Daemon extends SiteProgram {
     }
     initIndexType();
     sysInjector = createSysInjector();
-    sysInjector.getInstance(PluginGuiceEnvironment.class).setDbCfgInjector(dbInjector, cfgInjector);
+    sysInjector.getInstance(PluginGuiceEnvironment.class)
+        .setDbCfgInjector(dbInjector, cfgInjector);
+
+    sysInjector.getInstance(ReplicatedEventsCoordinator.class)
+        .setSysInjector(sysInjector);
+
     manager.add(dbInjector, cfgInjector, sysInjector);
 
     sshd &= !sshdOff();
@@ -430,6 +437,7 @@ public class Daemon extends SiteProgram {
 
   private Injector createCfgInjector() {
     final List<Module> modules = new ArrayList<>();
+    modules.add(new ReplicatedConfiguration.Module());
     modules.add(new AuthConfigModule());
     return dbInjector.createChildInjector(modules);
   }
@@ -448,9 +456,16 @@ public class Daemon extends SiteProgram {
     modules.add(new StreamEventsApiListener.Module());
     modules.add(new EventBroker.Module());
 
-    // WANdisco replication modules
-    modules.add(new ReplicatedEventsManager.Module());
-    modules.add(new ReplicatedIndexEventManager.Module());
+    /** Add all replication modules now */
+    ReplicatedConfiguration replicatedConfiguration =
+        cfgInjector.getInstance(ReplicatedConfiguration.class);
+
+    if(!replicatedConfiguration.getConfigureReplication().isReplicationEnabled()){
+      //if replication is disabled then use the dummy module
+      modules.add(new DummyReplicationModule());
+    } else {
+      modules.add(new ReplicationModule());
+    }
 
     modules.add(
         inMemoryTest

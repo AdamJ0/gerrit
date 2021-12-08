@@ -8,7 +8,8 @@ import com.google.gerrit.server.config.AllProjectsName;
 import com.google.gerrit.server.config.AllUsersName;
 import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
 import com.google.gerrit.server.notedb.RepoSequence;
-import com.google.gerrit.server.replication.Replicator;
+import com.google.gerrit.server.replication.SingletonEnforcement;
+import com.google.gerrit.server.replication.TestingReplicatedEventsCoordinator;
 import com.google.gerrit.testing.InMemoryRepositoryManager;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.RefUpdate;
@@ -18,20 +19,17 @@ import org.eclipse.jgit.revwalk.RevWalk;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
+
+import java.util.Properties;
 
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.gerrit.server.notedb.RepoSequence.SEQUENCE_TUPLE_DELIMITER;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE;
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.easymock.EasyMock.expect;
-import static org.junit.Assert.fail;
-import static org.powermock.api.easymock.PowerMock.mockStatic;
 
 
 @RunWith(PowerMockRunner.class)
-@PrepareForTest(Replicator.class)
 public class RevertRepoSequenceTest {
 
     private static final int INITIAL_SEQUENCE = 345;
@@ -48,7 +46,8 @@ public class RevertRepoSequenceTest {
 
     private RevertRepoSequence revertRepoSequence;
 
-    private Replicator replicator;
+    private static TestingReplicatedEventsCoordinator dummyTestCoordinator;
+
 
     @Before
     public void setUp() throws Exception {
@@ -61,38 +60,30 @@ public class RevertRepoSequenceTest {
                                                     allProjectsName,
                                                     allUsersName);
 
-        // mocks
-        replicator = PowerMock.createMock(Replicator.class);
-    }
+      SingletonEnforcement.clearAll();
+      SingletonEnforcement.setDisableEnforcement(true);
 
-    private void mockStaticReplicator() {
-        mockStatic(Replicator.class);
-        expect(Replicator.isReplicationDisabled()).andReturn(false);
-        expect(Replicator.getInstance()).andReturn(replicator);
-        expect(replicator.getThisNodeIdentity()).andReturn(NODE_ID);
-        PowerMock.replayAll();
+      Properties testingProperties = new Properties();
+
+      // SET our pool to 2 items, plus the 2 core projects.
+      testingProperties.put(GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE, "2");
+      dummyTestCoordinator = new TestingReplicatedEventsCoordinator(testingProperties);
     }
 
     @Test
     public void sequenceShouldBeFirstChangeId() throws Exception {
-        mockStaticReplicator();
-
-        RepoSequence initSequence = newSequence(Sequences.NAME_CHANGES, INITIAL_SEQUENCE, 1);
-        assertThat(initSequence.next()).isEqualTo(INITIAL_SEQUENCE);
+      RepoSequence initSequence = newSequence(Sequences.NAME_CHANGES, INITIAL_SEQUENCE, 1);
+      assertThat(initSequence.next()).isEqualTo(INITIAL_SEQUENCE);
     }
 
     @Test
     public void firstSequenceBlobShouldBeTuple() throws Exception {
-        mockStaticReplicator();
-
         newSequence(Sequences.NAME_CHANGES, INITIAL_SEQUENCE, 1).next();
         assertThat(readBlob(Sequences.NAME_CHANGES)).isEqualTo(NODE_ID + SEQUENCE_TUPLE_DELIMITER + (INITIAL_SEQUENCE+1));
     }
 
     @Test
     public void shouldRevertTupleToIntAndBeRolledOn() throws Exception {
-        mockStaticReplicator();
-
         RepoSequence sequence = newSequence(Sequences.NAME_CHANGES, INITIAL_SEQUENCE, 1);
         sequence.next();
         assertThat(readBlob(Sequences.NAME_CHANGES)).isEqualTo(NODE_ID + SEQUENCE_TUPLE_DELIMITER + (INITIAL_SEQUENCE+1));

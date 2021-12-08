@@ -25,8 +25,8 @@ import com.google.gerrit.server.account.AccountState;
 import com.google.gerrit.server.logging.TraceContext;
 import com.google.gerrit.server.logging.TraceContext.TraceTimer;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
-import com.google.gerrit.server.replication.ReplicatedAccountsIndexManager;
-import com.google.gerrit.server.replication.Replicator;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
+import com.google.inject.Provider;
 import com.google.inject.assistedinject.Assisted;
 import com.google.inject.assistedinject.AssistedInject;
 
@@ -49,7 +49,8 @@ public class AccountIndexerImpl implements AccountIndexer {
   private final AccountCache byIdCache;
   private final PluginSetContext<AccountIndexedListener> indexedListener;
   private final StalenessChecker stalenessChecker;
-  @Nullable private final ReplicatedAccountsIndexManager replicatedAccountsIndexManager;
+  private final Provider<ReplicatedEventsCoordinator> providedEventsCoordinator;
+  private ReplicatedEventsCoordinator replicatedEventsCoordinator;
   @Nullable private final AccountIndexCollection indexes;
   @Nullable private final AccountIndex index;
 
@@ -58,13 +59,15 @@ public class AccountIndexerImpl implements AccountIndexer {
       AccountCache byIdCache,
       PluginSetContext<AccountIndexedListener> indexedListener,
       StalenessChecker stalenessChecker,
-      @Assisted AccountIndexCollection indexes) {
+      @Assisted AccountIndexCollection indexes,
+      Provider<ReplicatedEventsCoordinator> providedEventsCoordinator) {
     this.byIdCache = byIdCache;
     this.indexedListener = indexedListener;
     this.stalenessChecker = stalenessChecker;
     this.indexes = indexes;
     this.index = null;
-    this.replicatedAccountsIndexManager = ReplicatedAccountsIndexManager.Factory.create(this);
+    this.providedEventsCoordinator = providedEventsCoordinator;
+
   }
 
   @AssistedInject
@@ -72,18 +75,41 @@ public class AccountIndexerImpl implements AccountIndexer {
       AccountCache byIdCache,
       PluginSetContext<AccountIndexedListener> indexedListener,
       StalenessChecker stalenessChecker,
-      @Assisted @Nullable AccountIndex index) {
+      @Assisted @Nullable AccountIndex index,
+      Provider<ReplicatedEventsCoordinator> providedEventsCoordinator) {
     this.byIdCache = byIdCache;
     this.indexedListener = indexedListener;
     this.stalenessChecker = stalenessChecker;
     this.indexes = null;
     this.index = index;
-    this.replicatedAccountsIndexManager = ReplicatedAccountsIndexManager.Factory.create(this);
+    this.providedEventsCoordinator = providedEventsCoordinator;
   }
+
+
+  public ReplicatedEventsCoordinator getProvidedEventsCoordinator(){
+    if(replicatedEventsCoordinator == null){
+      replicatedEventsCoordinator = providedEventsCoordinator.get();
+    }
+    return replicatedEventsCoordinator;
+  }
+
+  /**
+   * Asks the replicated coordinator for an instance of the ReplicatedOutgoingAccountsIndexFeed
+   * and calls replicateAccountReindex on it with the account Id.
+   * @param id
+   * @throws IOException
+   */
+  public void replicateAccountReindex(Account.Id id) throws IOException {
+    if(getProvidedEventsCoordinator().isReplicationEnabled()) {
+      getProvidedEventsCoordinator().getReplicatedOutgoingAccountBaseIndexEventsFeed()
+          .replicateReindex(id);
+    }
+  }
+
 
   @Override
   public void index(Account.Id id) throws IOException {
-    indexImplementation(id, Replicator.isReplicationEnabled());
+    indexImplementation(id, getProvidedEventsCoordinator().isReplicationEnabled());
   }
 
 
@@ -128,8 +154,8 @@ public class AccountIndexerImpl implements AccountIndexer {
       }
     }
 
-    if (replicate && replicatedAccountsIndexManager != null) {
-      replicatedAccountsIndexManager.replicateReindex(id);
+    if (replicate) {
+      replicateAccountReindex(id);
     }
 
     fireAccountIndexedEvent(id.get());

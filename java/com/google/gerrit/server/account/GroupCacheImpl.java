@@ -24,8 +24,7 @@ import com.google.gerrit.server.group.db.Groups;
 import com.google.gerrit.server.logging.TraceContext;
 import com.google.gerrit.server.logging.TraceContext.TraceTimer;
 import com.google.gerrit.server.query.group.InternalGroupQuery;
-import com.google.gerrit.server.replication.ReplicatedCacheManager;
-import com.google.gerrit.server.replication.Replicator;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.inject.Inject;
 import com.google.inject.Module;
 import com.google.inject.Provider;
@@ -75,15 +74,19 @@ public class GroupCacheImpl implements GroupCache {
   private final LoadingCache<AccountGroup.Id, Optional<InternalGroup>> byId;
   private final LoadingCache<String, Optional<InternalGroup>> byName;
   private final LoadingCache<String, Optional<InternalGroup>> byUUID;
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
+
 
   @Inject
   GroupCacheImpl(
       @Named(BYID_NAME) LoadingCache<AccountGroup.Id, Optional<InternalGroup>> byId,
       @Named(BYNAME_NAME) LoadingCache<String, Optional<InternalGroup>> byName,
-      @Named(BYUUID_NAME) LoadingCache<String, Optional<InternalGroup>> byUUID) {
+      @Named(BYUUID_NAME) LoadingCache<String, Optional<InternalGroup>> byUUID,
+      ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     this.byId = byId;
     this.byName = byName;
     this.byUUID = byUUID;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
 
     attachToReplication();
   }
@@ -93,13 +96,25 @@ public class GroupCacheImpl implements GroupCache {
    * N.B. we do not need to hook in the cache listeners if replication is disabled.
    */
   final void attachToReplication() {
-    if(Replicator.isReplicationDisabled()){
+    if( !replicatedEventsCoordinator.isReplicationEnabled() ){
+      logger.atInfo().log("Replication is disabled - not hooking in GroupCache listeners.");
       return;
     }
+    replicatedEventsCoordinator.getReplicatedIncomingCacheEventProcessor().watchCache(BYID_NAME, this.byId);
+    replicatedEventsCoordinator.getReplicatedIncomingCacheEventProcessor().watchCache(BYNAME_NAME, this.byName);
+    replicatedEventsCoordinator.getReplicatedIncomingCacheEventProcessor().watchCache(BYUUID_NAME, this.byUUID);
+  }
 
-    ReplicatedCacheManager.watchCache(BYID_NAME, this.byId);
-    ReplicatedCacheManager.watchCache(BYNAME_NAME, this.byName);
-    ReplicatedCacheManager.watchCache(BYUUID_NAME, this.byUUID);
+  /**
+   *  Asks the replicated coordinator for the instance of the ReplicatedOutgoingCacheEventsFeed and calls
+   *  replicateEvictionFromCache on it.
+   * @param name : Name of the cache to evict from.
+   * @param value : Value to evict from the cache.
+   */
+  private void replicateEvictionFromCache(String name, Object value) {
+    if(replicatedEventsCoordinator.isReplicationEnabled()) {
+      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value);
+    }
   }
 
   @Override
@@ -144,7 +159,7 @@ public class GroupCacheImpl implements GroupCache {
     if (groupId != null) {
       logger.atFine().log("Evict group %s by ID", groupId.get());
       byId.invalidate(groupId);
-      ReplicatedCacheManager.replicateEvictionFromCache(BYID_NAME, groupId);
+      replicateEvictionFromCache(BYID_NAME, groupId);
     }
   }
 
@@ -153,7 +168,7 @@ public class GroupCacheImpl implements GroupCache {
     if (groupName != null) {
       logger.atFine().log("Evict group '%s' by name", groupName.get());
       byName.invalidate(groupName.get());
-      ReplicatedCacheManager.replicateEvictionFromCache(BYNAME_NAME, groupName);
+      replicateEvictionFromCache(BYNAME_NAME, groupName);
     }
   }
 
@@ -162,7 +177,7 @@ public class GroupCacheImpl implements GroupCache {
     if (groupUuid != null) {
       logger.atFine().log("Evict group %s by UUID", groupUuid.get());
       byUUID.invalidate(groupUuid.get());
-      ReplicatedCacheManager.replicateEvictionFromCache(BYUUID_NAME, groupUuid);
+      replicateEvictionFromCache(BYUUID_NAME, groupUuid);
     }
   }
 
@@ -172,7 +187,7 @@ public class GroupCacheImpl implements GroupCache {
       logger.atFine().log("Evict group %s by UUID", groupUuid.get());
       byUUID.invalidate(groupUuid.get());
       if (shouldReplicate) {
-        ReplicatedCacheManager.replicateEvictionFromCache(BYUUID_NAME, groupUuid);
+        replicateEvictionFromCache(BYUUID_NAME, groupUuid);
       }
     }
   }

@@ -31,10 +31,9 @@ import com.google.auto.value.AutoValue;
 import com.google.common.cache.Cache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.flogger.FluentLogger;
-import com.google.gerrit.server.replication.ReplicatedCacheManager;
 import com.google.gerrit.common.data.AccessSection;
 import com.google.gerrit.server.cache.CacheModule;
-import com.google.gerrit.server.replication.Replicator;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.server.util.MostSpecificComparator;
 import com.google.inject.Inject;
 import com.google.inject.Module;
@@ -69,21 +68,21 @@ public class SectionSortCache {
   }
 
   private final Cache<EntryKey, EntryVal> cache;
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
   @Inject
-  SectionSortCache(@Named(CACHE_NAME) Cache<EntryKey, EntryVal> cache) {
+  SectionSortCache(@Named(CACHE_NAME) Cache<EntryKey, EntryVal> cache, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     this.cache = cache;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
     attachToReplication();
   }
-  /**
-   * Attach to replication the caches that this object uses.
-   * N.B. we do not need to hook in the cache listeners if replication is disabled.
-   */
+
   final void attachToReplication() {
-    if(Replicator.isReplicationDisabled()){
+    if (!replicatedEventsCoordinator.isReplicationEnabled()) {
+      logger.atInfo().log("Replication is disabled - not hooking in SectionSortCache listeners.");
       return;
     }
-    ReplicatedCacheManager.watchCache(CACHE_NAME, this.cache);
+    replicatedEventsCoordinator.getReplicatedIncomingCacheEventProcessor().watchCache(CACHE_NAME, this.cache);
   }
 
   // Sorts the given sections, but does not disturb ordering between equally exact sections.
