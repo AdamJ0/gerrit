@@ -6,7 +6,7 @@
 #         /var/lib/jenkins/tmp ( on build machine with jenkins )
 #         /tmp/builds/gerritms ( on dev machine )
 # 3) Finally can overriden by user using GERRIT_TEST_LOCATION=$WORKSPACE which can group assets together in one location
-#        $WORKSPACE/gerrit $WORKSPACE/alm-dev $WORKSPACE/jgit-update-service
+#        $WORKSPACE/gerrit $WORKSPACE/alm-dev $WORKSPACE/git-ms-replicator
 
 # maybe use /var/lib/jenkins/tmp it can still be ok on our local machines, maybe make switchable to /tmp but its ok for now.
 JENKINS_DIRECTORY=/var/lib/jenkins

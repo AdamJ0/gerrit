@@ -131,10 +131,10 @@ clean: | $(testing_location)
 	rm -rf $(GERRIT_BAZEL_OUT)
 	rm -f $(GERRIT_ROOT)/env.properties
 
-	@# Clear jgit artifacts from test location, if known.
+	@# Clear GitMS artifacts from test location, if known.
 	$(if $(GERRIT_TEST_LOCATION), \
-        rm -rf $(GERRIT_TEST_LOCATION)/jgit-update-service, \
-        @echo "GERRIT_TEST_LOCATION not set, skipping.")
+	rm -rf $(GERRIT_TEST_LOCATION)/git-ms-replicator, \
+	@echo "GERRIT_TEST_LOCATION not set, skipping.")
 
 	@# we should think about only doing this with a force flag, but for now always wipe the cache - only way to be sure!!
 	@echo cache located here: $(GERRIT_BAZELCACHE_PATH)

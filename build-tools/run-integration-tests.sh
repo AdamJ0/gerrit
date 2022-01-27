@@ -53,20 +53,20 @@ echo Here is the new gituser: $git_username
 
 #Run integration tests with generated Gerrit MS war against latest Git MS
 # First check if the testing directory already exists, run git pull instead to update it, as this could be a dev box.
-if [ -d $GERRIT_TEST_LOCATION/jgit-update-service/.git ]; then
+if [ -d $GERRIT_TEST_LOCATION/git-ms-replicator/.git ]; then
   # directory is here already, run a pull instead.
-  cd $GERRIT_TEST_LOCATION/jgit-update-service
+  cd $GERRIT_TEST_LOCATION/git-ms-replicator
   git pull || {
     echo "Failed to pull the and update GitMS branch"
     exit 1;
   }
 else
   # clone a fresh repo
-  git clone --branch "$GITMS_VERSION" --depth 1 ssh://$git_username@gerrit-uk.wandisco.com:29418/jgit-update-service $GERRIT_TEST_LOCATION/jgit-update-service || {
+  git clone --branch "$GITMS_VERSION" --depth 1 ssh://$git_username@gerrit-uk.wandisco.com:29418/git-ms-replicator $GERRIT_TEST_LOCATION/git-ms-replicator || {
     echo "Failed to clone the correct branch of GitMS dictated by GITMS_VERSION: $GITMS_VERSION"
     exit 1;
   }
-  cd $GERRIT_TEST_LOCATION/jgit-update-service || {
+  cd $GERRIT_TEST_LOCATION/git-ms-replicator || {
     echo "Failed to change location to the GitMS test site."
     exit 1;
   }
@@ -74,11 +74,11 @@ fi
 
 # Copy over the gerritMS build assets.  Really we should use the real installer package, but this is what it uses
 # for now.....
-cp -a "$RELEASE_WAR_PATH/release.war" "$GERRIT_TEST_LOCATION/jgit-update-service/gerrit.war" || {
+cp -a "$RELEASE_WAR_PATH/release.war" "$GERRIT_TEST_LOCATION/git-ms-replicator/gerrit.war" || {
   echo "Failed to copy release.war - exiting."
   exit 1;
 }
-cp -a "$CONSOLE_API_JAR_PATH/console-api.jar" "$GERRIT_TEST_LOCATION/jgit-update-service/console-api.jar" || {
+cp -a "$CONSOLE_API_JAR_PATH/console-api.jar" "$GERRIT_TEST_LOCATION/git-ms-replicator/console-api.jar" || {
   echo "Failed to copy console-api - exiting."
   exit 1;
 }
@@ -92,7 +92,7 @@ mysql -uroot -e "CREATE USER 'jenkins'@'localhost' IDENTIFIED BY 'password';" ||
 echo "Testing environment cloned, and configured -> start test run."
 
 # Move to the testing directory and start using its commands.
-cd $GERRIT_TEST_LOCATION/jgit-update-service || {
+cd $GERRIT_TEST_LOCATION/git-ms-replicator || {
   echo "Failed to move into test location."
   exit 1;
 }
