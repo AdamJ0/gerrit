@@ -46,6 +46,8 @@ import java.util.Map;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.lib.BatchRefUpdate;
 import org.eclipse.jgit.lib.NullProgressMonitor;
+import org.eclipse.jgit.lib.ObjectInserter;
+import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -95,9 +97,10 @@ public class Schema_124 extends SchemaVersion {
     }
 
     try (Repository git = repoManager.openRepository(allUsersName);
-        RevWalk rw = new RevWalk(git)) {
+        ObjectInserter inserter = getPackInserterFirst(git);
+        ObjectReader reader = inserter.newReader();
+        RevWalk rw = new RevWalk(reader)) {
       BatchRefUpdate bru = git.getRefDatabase().newBatchUpdate();
-
       for (Map.Entry<Account.Id, Collection<AccountSshKey>> e : imports.asMap().entrySet()) {
         try (MetaDataUpdate md =
             new MetaDataUpdate(GitReferenceUpdated.DISABLED, allUsersName, git, bru)) {
@@ -108,10 +111,10 @@ public class Schema_124 extends SchemaVersion {
               new VersionedAuthorizedKeys(new SimpleSshKeyCreator(), e.getKey());
           authorizedKeys.load(md);
           authorizedKeys.setKeys(fixInvalidSequenceNumbers(e.getValue()));
-          authorizedKeys.commit(md);
+          authorizedKeys.commit(md, inserter, reader, rw);
         }
       }
-
+      inserter.flush();
       bru.execute(rw, NullProgressMonitor.INSTANCE);
     } catch (ConfigInvalidException | IOException ex) {
       throw new OrmException(ex);

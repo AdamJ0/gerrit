@@ -122,6 +122,10 @@ public class NoteDbMigrator implements AutoCloseable {
 
   private static final String AUTO_MIGRATE = "autoMigrate";
   private static final String TRIAL = "trial";
+  private static final String SECTION_DATABASE = "database";
+  private static final String POSTGRESQL = "postgresql";
+  private static final String URL = "url";
+  private static final String TYPE = "type";
 
   private static final int PROJECT_SLICE_MAX_REFS = 1000;
   private static final int GC_INTERVAL = 10000;
@@ -140,6 +144,18 @@ public class NoteDbMigrator implements AutoCloseable {
 
   public static void setTrialMode(Config cfg, boolean trial) {
     cfg.setBoolean(SECTION_NOTE_DB, NoteDbTable.CHANGES.key(), TRIAL, trial);
+  }
+
+  public static boolean isDatabasePostgreSQL(Config cfg) {
+    String type = cfg.getString(SECTION_DATABASE, null, TYPE);
+    if (POSTGRESQL.equals(type)) {
+      return true;
+    }
+    String url = cfg.getString(SECTION_DATABASE, null, URL);
+    if (url != null && url.contains(POSTGRESQL)) {
+      return true;
+    }
+    return false;
   }
 
   private static class NoteDbMigrationLoggerOut extends OutputStream {
@@ -184,6 +200,8 @@ public class NoteDbMigrator implements AutoCloseable {
     private boolean trial;
     private boolean forceRebuild;
     private boolean forceStateChangeWithSkip;
+    private boolean gc;
+    private boolean shuffleProjectSlices;
     private int sequenceGap = -1;
     private boolean autoMigrate;
     private boolean verbose;
@@ -366,6 +384,38 @@ public class NoteDbMigrator implements AutoCloseable {
     }
 
     /**
+     * GC repositories regularly during noteDb migration.
+     *
+     * <p>This might help improve performance in some instances. If enabled, auto GC will be run for
+     * every new 10000 refs which are created during the migration of a project. Auto GC will do
+     * garbage collection by default, if it finds more than 6700 loose objects or more than 50 pack
+     * files. These defaults can be changed by updating gc.auto and gc.autoPackLimit.
+     *
+     * @param gc whether GC must be done on repositories during migration
+     * @return this.
+     */
+    public Builder setGC(boolean gc) {
+      this.gc = gc;
+      return this;
+    }
+
+    /**
+     * Shuffle project slices during the rebuild phase of noteDb migration.
+     *
+     * <p>This might help reduce memory allocation if the site has few large and many small
+     * repositories. It mixes slices from large and small repositories to reduce overall memory
+     * allocation, so that the number of migration threads can be increased without driving java GC
+     * crazy. However, it has the down-side of reducing disk cache hits.
+     *
+     * @param shuffleProjectSlices whether project slices must be shuffled during migration
+     * @return this.
+     */
+    public Builder setShuffleProjectSlices(boolean shuffleProjectSlices) {
+      this.shuffleProjectSlices = shuffleProjectSlices;
+      return this;
+    }
+
+    /**
      * Gap between ReviewDb change sequence numbers and NoteDb.
      *
      * <p>If NoteDb sequences are enabled in a running server, there is a race between the migration
@@ -444,6 +494,8 @@ public class NoteDbMigrator implements AutoCloseable {
           trial,
           forceRebuild,
           forceStateChangeWithSkip,
+          gc,
+          shuffleProjectSlices,
           sequenceGap >= 0 ? sequenceGap : Sequences.getChangeSequenceGap(cfg),
           autoMigrate,
           verbose);
@@ -507,6 +559,8 @@ public class NoteDbMigrator implements AutoCloseable {
   private final boolean trial;
   private final boolean forceRebuild;
   private final boolean forceStateChangeWithSkip;
+  private final boolean gc;
+  private final boolean shuffleProjectSlices;
   private final int sequenceGap;
   private final boolean autoMigrate;
   private final boolean verbose;
@@ -539,6 +593,8 @@ public class NoteDbMigrator implements AutoCloseable {
       boolean trial,
       boolean forceRebuild,
       boolean forceStateChangeWithSkip,
+      boolean gc,
+      boolean shuffleProjectSlices,
       int sequenceGap,
       boolean autoMigrate,
       boolean verbose)
@@ -575,6 +631,8 @@ public class NoteDbMigrator implements AutoCloseable {
     this.trial = trial;
     this.forceRebuild = forceRebuild;
     this.forceStateChangeWithSkip = forceStateChangeWithSkip;
+    this.gc = gc;
+    this.shuffleProjectSlices = shuffleProjectSlices;
     this.sequenceGap = sequenceGap;
     this.autoMigrate = autoMigrate;
     this.verbose = verbose;
@@ -854,9 +912,31 @@ public class NoteDbMigrator implements AutoCloseable {
         slices.add(ps);
       }
     }
-    Collections.shuffle(slices);
+    if (shuffleProjectSlices) {
+      Collections.shuffle(slices);
+    }
     totalChangeCount = changesByProject.size();
     return slices;
+  }
+
+  public void warmReviewDb() throws OrmException {
+    if (isDatabasePostgreSQL(gerritConfig)) {
+      logger.atInfo().log("Warming PostgreSQL DB");
+      Stopwatch sw = Stopwatch.createStarted();
+      try (ReviewDb db = schemaFactory.open()) {
+        // PostgreSQL driver by default fetches all the data, even if we don't iterate over
+        // it, which is exactly the reason why these queries warm the DB and it is also the
+        // reason we restrict the warm to PostgreSQL only as drivers for other DB types will
+        // likely behave differently. We close the result sets after each query to free up
+        // memory as the entire data is fetched.
+        db.patchSetApprovals().all().close();
+        db.changeMessages().all().close();
+        db.patchSets().all().close();
+        db.patchComments().all().close();
+      }
+      logger.atInfo().log(
+          "PostgreSQL DB warm took %.01fs", sw.elapsed(TimeUnit.MILLISECONDS) / 1000d);
+    }
   }
 
   public void rebuild() throws MigrationException, OrmException {
@@ -865,6 +945,8 @@ public class NoteDbMigrator implements AutoCloseable {
     }
     Stopwatch sw = Stopwatch.createStarted();
     logger.atInfo().log("Rebuilding changes in NoteDb");
+
+    warmReviewDb();
 
     List<ProjectSlice> slices = slice();
     List<ListenableFuture<Boolean>> futures = new ArrayList<>();
@@ -1026,7 +1108,7 @@ public class NoteDbMigrator implements AutoCloseable {
                 c, totalChangeCount, (100.0 * c) / totalChangeCount);
           }
           pc = ctx.changesMigratedCount.incrementAndGet();
-          if (pc % GC_INTERVAL == 0) {
+          if (gc && pc % GC_INTERVAL == 0) {
             gc(project, changeRepo, ctx.gcLock);
           }
           pm.update(1);

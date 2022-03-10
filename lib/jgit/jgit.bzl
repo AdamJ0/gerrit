@@ -1,7 +1,13 @@
 load("//tools/bzl:maven_jar.bzl", "MAVEN_CENTRAL", "MAVEN_LOCAL", "WANDISCO_ASSETS", "maven_jar")
 
-_JGIT_VANILLA_VERS = "5.1.15"
+_JGIT_VANILLA_VERS = "5.1.16"
 _DOC_VERS = "5.1.15.202012011955-r"  # Set to _JGIT_VANILA_VERS unless using a snapshot
+
+# Upstream note about doc version mismatch on 2.16 branch:
+# TODO: workaround to be removed when merging upstream:
+# 5.1.16.202106041830-r has been removed while
+# 5.1.15.202012011955-r is available and has the same
+# interface and docs
 
 # Defines the WD postfix
 _POSTFIX_WD = "-WDv1"
@@ -46,28 +52,28 @@ def jgit_maven_repos():
         name = "jgit-lib",
         artifact = "org.eclipse.jgit:org.eclipse.jgit:" + _JGIT_VERS,
         repository = _JGIT_REPO,
-        sha1 = "1ae4e52640ce035e20c7149ca514782e2308d10f",
-        src_sha1 = "7277da61b9c09fda32f00220bf61e7b86ce202cd",
+        sha1 = "18e697e417691b9c52f849ff65ea87987d87a748",
+        src_sha1 = "e50aa87a610e3266ca5c1976a69eddf13f7191fa",
         unsign = True,
     )
     maven_jar(
         name = "jgit-servlet",
         artifact = "org.eclipse.jgit:org.eclipse.jgit.http.server:" + _JGIT_VERS,
         repository = _JGIT_REPO,
-        sha1 = "5fef289c1bc6d5f33ab091183a6bc30e7a77c207",
+        sha1 = "f415d0021f3a504d2a86f90c64239892c5011c49",
         unsign = True,
     )
     maven_jar(
         name = "jgit-archive",
         artifact = "org.eclipse.jgit:org.eclipse.jgit.archive:" + _JGIT_VERS,
         repository = _JGIT_REPO,
-        sha1 = "76a506743edab81a12d80013f66b2ad6767286ea",
+        sha1 = "9931139076e7a314a9b0e0292f84b5b773f3f4d1",
     )
     maven_jar(
         name = "jgit-junit",
         artifact = "org.eclipse.jgit:org.eclipse.jgit.junit:" + _JGIT_VERS,
         repository = _JGIT_REPO,
-        sha1 = "8a13c69769124d120b6457ccda2658e8379f0632",
+        sha1 = "d7f63cf13694d6ca04771f634162a58d9835baa5",
         unsign = True,
     )
 
@@ -75,7 +81,7 @@ def jgit_maven_repos():
     maven_jar(
         name = "jgit-http-apache",
         artifact = "org.eclipse.jgit:org.eclipse.jgit.http.apache:" + _JGIT_VERS,
-        sha1 = "638409082bb8b8cfca4500af4a31b601b2d2101f",
+        sha1 = "9209b4aced75cb9349863796dfa74c2143a7d7ba",
         repository = _JGIT_REPO,
         unsign = True,
         exclude = [
@@ -87,7 +93,7 @@ def jgit_maven_repos():
     maven_jar(
         name = "jgit-lfs",
         artifact = "org.eclipse.jgit:org.eclipse.jgit.lfs:" + _JGIT_VERS,
-        sha1 = "7f5da28f264d57d923f5deeed3a41d4f2be216fc",
+        sha1 = "7a7b277cc67dbfc0f3cbf69a08a10641920d4dde",
         repository = _JGIT_REPO,
         unsign = True,
         exclude = [
@@ -99,7 +105,7 @@ def jgit_maven_repos():
     maven_jar(
         name = "jgit-lfs-server",
         artifact = "org.eclipse.jgit:org.eclipse.jgit.lfs.server:" + _JGIT_VERS,
-        sha1 = "7feac53e9c939481a464fe33915c1e9c84f86031",
+        sha1 = "516a20d40f9f8045f7c83efb5b8a76cf1a22bf33",
         repository = _JGIT_REPO,
         unsign = True,
         exclude = [
