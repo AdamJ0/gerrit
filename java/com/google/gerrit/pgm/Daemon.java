@@ -64,6 +64,7 @@ import com.google.gerrit.pgm.http.jetty.JettyEnv;
 import com.google.gerrit.pgm.http.jetty.JettyModule;
 import com.google.gerrit.pgm.http.jetty.ProjectQoSFilter;
 import com.google.gerrit.pgm.util.ErrorLogFile;
+import com.google.gerrit.server.util.GuiceUtils;
 import com.google.gerrit.pgm.util.LogFileCompressor;
 import com.google.gerrit.pgm.util.RuntimeShutdown;
 import com.google.gerrit.pgm.util.SiteProgram;
@@ -113,7 +114,7 @@ import com.google.gerrit.server.plugins.PluginModule;
 import com.google.gerrit.server.project.DefaultProjectNameLockManager;
 import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
-import com.google.gerrit.server.replication.modules.DummyReplicationModule;
+import com.google.gerrit.server.replication.modules.NonReplicatedCoordinatorModule;
 import com.google.gerrit.server.replication.modules.ReplicationModule;
 import com.google.gerrit.server.restapi.RestApiModule;
 import com.google.gerrit.server.schema.DataSourceProvider;
@@ -437,7 +438,12 @@ public class Daemon extends SiteProgram {
 
   private Injector createCfgInjector() {
     final List<Module> modules = new ArrayList<>();
-    modules.add(new ReplicatedConfiguration.Module());
+
+    // Only bind this module if it is not an InMemory test and we haven't already bound the class
+    if(!inMemoryTest && !GuiceUtils.hasBinding(dbInjector, ReplicatedConfiguration.class)) {
+      modules.add(new ReplicatedConfiguration.Module());
+    }
+
     modules.add(new AuthConfigModule());
     return dbInjector.createChildInjector(modules);
   }
@@ -456,15 +462,16 @@ public class Daemon extends SiteProgram {
     modules.add(new StreamEventsApiListener.Module());
     modules.add(new EventBroker.Module());
 
-    /** Add all replication modules now */
-    ReplicatedConfiguration replicatedConfiguration =
-        cfgInjector.getInstance(ReplicatedConfiguration.class);
-
-    if(!replicatedConfiguration.getConfigureReplication().isReplicationEnabled()){
-      //if replication is disabled then use the dummy module
-      modules.add(new DummyReplicationModule());
-    } else {
-      modules.add(new ReplicationModule());
+    if(!inMemoryTest) {
+      /** Add all replication modules now */
+      ReplicatedConfiguration replicatedConfiguration =
+          cfgInjector.getInstance(ReplicatedConfiguration.class);
+      if (!replicatedConfiguration.getConfigureReplication().isReplicationEnabled()) {
+        //if replication is disabled then use the dummy module
+        modules.add(new NonReplicatedCoordinatorModule());
+      } else {
+        modules.add(new ReplicationModule());
+      }
     }
 
     modules.add(

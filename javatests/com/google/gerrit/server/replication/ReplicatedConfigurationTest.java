@@ -10,7 +10,7 @@ import org.junit.rules.ExpectedException;
 import java.util.Properties;
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.*;
 
-public class ReplicatedConfigurationTest extends AbstractReplicationTesting{
+public class ReplicatedConfigurationTest extends AbstractReplicationSetup {
 
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
@@ -19,13 +19,14 @@ public class ReplicatedConfigurationTest extends AbstractReplicationTesting{
 
   @Before
   public void setupTest() throws Exception {
-    // make sure we clear out and have a new coordinator for each test - sorry but otherwise we would need to be
+    // make sure we clear out and have a new coordinator for each test - sorry, but otherwise we would need to be
     // clearing out lists which would change depend on ordering!
-    Properties testingProperties = new Properties();
+    Properties extraProperties = new Properties();
 
     // SET our pool to 2 items, plus the 2 core projects.
-    testingProperties.put("dummy_property_with_long_value", "20000000L");
-    dummyTestCoordinator = new TestingReplicatedEventsCoordinator(testingProperties);
+    extraProperties.put("dummy_property_with_long_value", "20000000L");
+
+    AbstractReplicationSetup.setupReplicatedEventsCoordinatorProps(extraProperties);
     Assert.assertNotNull(dummyTestCoordinator);
   }
 

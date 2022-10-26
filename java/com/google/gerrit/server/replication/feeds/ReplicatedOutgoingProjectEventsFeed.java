@@ -24,12 +24,12 @@ public class ReplicatedOutgoingProjectEventsFeed extends ReplicatedOutgoingEvent
   private static final Logger log = LoggerFactory.getLogger(ReplicatedOutgoingProjectEventsFeed.class);
 
   /**
-   * We only create this class from the replicatedEventscoordinator.
-   * This is a singleton and its enforced by our SingletonEnforcement below that if anyone else tries to create
+   * We only create this class from the replicatedEventsCoordinator.
+   * This is a singleton and it's enforced by our SingletonEnforcement below that if anyone else tries to create
    * this class it will fail.
    * Sorry by adding a getInstance, make this class look much more public than it is,
    * and people expect they can just call getInstance - when in fact they should always request it via the
-   * ReplicatedEventsCordinator.getReplicatedXWorker() methods.
+   * ReplicatedEventsCoordinator.getReplicatedXWorker() methods.
    * @param eventsCoordinator
    */
   public ReplicatedOutgoingProjectEventsFeed(ReplicatedEventsCoordinator eventsCoordinator) {

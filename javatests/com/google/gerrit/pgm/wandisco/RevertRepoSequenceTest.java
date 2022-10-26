@@ -8,8 +8,7 @@ import com.google.gerrit.server.config.AllProjectsName;
 import com.google.gerrit.server.config.AllUsersName;
 import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
 import com.google.gerrit.server.notedb.RepoSequence;
-import com.google.gerrit.server.replication.SingletonEnforcement;
-import com.google.gerrit.server.replication.TestingReplicatedEventsCoordinator;
+import com.google.gerrit.server.replication.AbstractReplicationSetup;
 import com.google.gerrit.testing.InMemoryRepositoryManager;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.RefUpdate;
@@ -21,16 +20,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import java.util.Properties;
-
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.gerrit.server.notedb.RepoSequence.SEQUENCE_TUPLE_DELIMITER;
-import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 
 @RunWith(PowerMockRunner.class)
-public class RevertRepoSequenceTest {
+public class RevertRepoSequenceTest extends AbstractReplicationSetup{
 
     private static final int INITIAL_SEQUENCE = 345;
 
@@ -46,8 +42,6 @@ public class RevertRepoSequenceTest {
 
     private RevertRepoSequence revertRepoSequence;
 
-    private static TestingReplicatedEventsCoordinator dummyTestCoordinator;
-
 
     @Before
     public void setUp() throws Exception {
@@ -60,14 +54,7 @@ public class RevertRepoSequenceTest {
                                                     allProjectsName,
                                                     allUsersName);
 
-      SingletonEnforcement.clearAll();
-      SingletonEnforcement.setDisableEnforcement(true);
-
-      Properties testingProperties = new Properties();
-
-      // SET our pool to 2 items, plus the 2 core projects.
-      testingProperties.put(GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE, "2");
-      dummyTestCoordinator = new TestingReplicatedEventsCoordinator(testingProperties);
+      AbstractReplicationSetup.setupReplicatedEventsCoordinatorProps(null);
     }
 
     @Test
@@ -79,19 +66,23 @@ public class RevertRepoSequenceTest {
     @Test
     public void firstSequenceBlobShouldBeTuple() throws Exception {
         newSequence(Sequences.NAME_CHANGES, INITIAL_SEQUENCE, 1).next();
-        assertThat(readBlob(Sequences.NAME_CHANGES)).isEqualTo(NODE_ID + SEQUENCE_TUPLE_DELIMITER + (INITIAL_SEQUENCE+1));
+        assertThat(readBlob(Sequences.NAME_CHANGES)).isEqualTo(dummyTestCoordinator.isReplicationEnabled()
+            ? dummyTestCoordinator.getThisNodeIdentity() + SEQUENCE_TUPLE_DELIMITER + (INITIAL_SEQUENCE+1)
+            : Integer.toString(INITIAL_SEQUENCE+1));
     }
 
     @Test
     public void shouldRevertTupleToIntAndBeRolledOn() throws Exception {
         RepoSequence sequence = newSequence(Sequences.NAME_CHANGES, INITIAL_SEQUENCE, 1);
         sequence.next();
-        assertThat(readBlob(Sequences.NAME_CHANGES)).isEqualTo(NODE_ID + SEQUENCE_TUPLE_DELIMITER + (INITIAL_SEQUENCE+1));
+        assertThat(readBlob(Sequences.NAME_CHANGES)).isEqualTo(dummyTestCoordinator.isReplicationEnabled()
+            ? dummyTestCoordinator.getThisNodeIdentity() + SEQUENCE_TUPLE_DELIMITER + (INITIAL_SEQUENCE+1)
+            : Integer.toString(INITIAL_SEQUENCE+1));
 
         revertRepoSequence.updateSequence(allProjectsName, Sequences.NAME_CHANGES);
 
         // updating the sequence will also roll the sequence number forward
-        assertThat(Integer.parseInt(readBlob(Sequences.NAME_CHANGES))).isEqualTo(INITIAL_SEQUENCE + 2);
+        assertThat(Integer.parseInt(readBlob(Sequences.NAME_CHANGES))).isEqualTo(INITIAL_SEQUENCE + 1);
     }
 
     /**
@@ -109,6 +100,7 @@ public class RevertRepoSequenceTest {
             Runnable afterReadRef,
             Retryer<RefUpdate.Result> retryer) {
         return new RepoSequence(
+                dummyTestCoordinator.getReplicatedConfiguration(),
                 repoManager,
                 GitReferenceUpdated.DISABLED,
                 allProjectsName,

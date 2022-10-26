@@ -28,12 +28,11 @@ import java.util.Random;
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.ENC;
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_MAX_EVENTS_TO_APPEND_BEFORE_PROPOSING;
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_MAX_MS_TO_WAIT_BEFORE_PROPOSING_EVENTS;
-import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE;
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.NEXT_EVENTS_FILE;
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.ACCOUNT_USER_INDEX_EVENT;
 import static com.wandisco.gerrit.gitms.shared.util.StringUtils.getProjectNameSha1;
 
-public class PersistedEventInformationTest extends AbstractReplicationTesting {
+public class PersistedEventInformationTest extends AbstractReplicationSetup {
 
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
@@ -43,14 +42,9 @@ public class PersistedEventInformationTest extends AbstractReplicationTesting {
 
   @Before
   public void setupTest() throws Exception {
-    // make sure we clear out and have a new coordinator for each test - sorry but otherwise we would need to be
+    // make sure we clear out and have a new coordinator for each test - sorry, but otherwise we would need to be
     // clearing out lists which would change depend on ordering!
-    Properties testingProperties = new Properties();
-
-    // SET our pool to 2 items, plus the 2 core projects.
-    testingProperties.put(GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE, "2");
-    dummyTestCoordinator = new TestingReplicatedEventsCoordinator(testingProperties);
-    Assert.assertNotNull(dummyTestCoordinator);
+    AbstractReplicationSetup.setupReplicatedEventsCoordinatorProps(null);
     outgoingDir = dummyTestCoordinator.getReplicatedConfiguration().getOutgoingReplEventsDirectory();
   }
 

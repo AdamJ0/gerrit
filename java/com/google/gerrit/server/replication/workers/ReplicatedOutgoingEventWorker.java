@@ -31,12 +31,12 @@ public class ReplicatedOutgoingEventWorker implements Runnable {
   private final Gson gson;
 
   /**
-   * We only create this class from the replicatedEventscoordinator.
-   * This is a singleton and its enforced by our SingletonEnforcement below that if anyone else tries to create
+   * We only create this class from the replicatedEventsCoordinator.
+   * This is a singleton, and it's enforced by our SingletonEnforcement below that if anyone else tries to create
    * this class it will fail.
    * Sorry by adding a getInstance, make this class look much more public than it is,
    * and people expect they can just call getInstance - when in fact they should always request it via the
-   * ReplicatedEventsCordinator.getReplicatedXWorker() methods.
+   * ReplicatedEventsCoordinator.getReplicatedXWorker() methods.
    * @param replicatedEventsCoordinator
    */
   public ReplicatedOutgoingEventWorker(ReplicatedEventsCoordinator replicatedEventsCoordinator) {
@@ -60,8 +60,8 @@ public class ReplicatedOutgoingEventWorker implements Runnable {
    * events have been saved to a file, this will be renamed with a pattern that will be taken care of
    * by the GitMS replicator and then deleted.
    *
-   * We process the events on the queue on a per project basis now i.e events are written
-   * to event files on a per project basis.
+   * We process the events on the queue on a per-project basis now i.e. events are written
+   * to event files on a per-project basis.
    * We now keep a map (outgoingEventInformationMap) which records the following outgoing event information
    * - Map<project name, PersistedEventInformation>
    *   {@link PersistedEventInformation}
@@ -114,7 +114,7 @@ public class ReplicatedOutgoingEventWorker implements Runnable {
         return;
       }
 
-      // we dont want to take the main process of gerrit out - let it try to recover.
+      // we don't want to take the main process of gerrit out - let it try to recover.
       logger.atSevere().withCause(t).log("Worker experienced exception - attempting to recover.");
     }
   }
@@ -175,7 +175,7 @@ public class ReplicatedOutgoingEventWorker implements Runnable {
    * If TimeSinceFirstEvent >= maxSecsToWaitBeforeProposingEvents
    *
    * then we call {@link PersistedEventInformation#setFileReady()} if we have events that were written
-   * to the per project event file. The .tmp file for the events is then atomically renamed
+   * to the per-project event file. The .tmp file for the events is then atomically renamed
    * {@link PersistedEventInformation#atomicRenameTmpFilename()} ()}
    *
    * finally we call iter.remove() to remove the instance from the map. This is done in both cases where
@@ -234,7 +234,7 @@ public class ReplicatedOutgoingEventWorker implements Runnable {
    *
    * Logic is to hold a file per project while still queueing events for a given project.
    * if the project is new, create file.
-   *   Otherwise keep appending to existing file
+   *   Otherwise, keep appending to existing file
    * Note eventually based on time or num events we will send this file.
    */
   private void setNewCurrentEventsFile(String projectName, final EventWrapper originalEvent) {

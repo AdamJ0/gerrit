@@ -97,6 +97,7 @@ public class ProjectCacheImpl implements ProjectCache {
   private final Lock listLock;
   private final ProjectCacheClock clock;
   private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
+  private final Provider<ProjectIndexer> indexer;
 
   @Inject
   ProjectCacheImpl(
@@ -113,6 +114,7 @@ public class ProjectCacheImpl implements ProjectCache {
     this.list = list;
     this.listLock = new ReentrantLock(true /* fair */);
     this.clock = clock;
+    this.indexer = indexer;
     /* WD Replication support */
     this.replicatedEventsCoordinator = replicatedEventsCoordinator;
     /* We may wish to check the isGerritRunning flag and only hook in for the daemon or supported replicated
@@ -287,8 +289,9 @@ public class ProjectCacheImpl implements ProjectCache {
 
     // If we are a remote site running the removeNoRepl then
     // replication will be false. We want to delete from the local index only
+    // TODO entire block below may need to be removed. See GER-1840
     if(!replicationEnabled) {
-      replicatedEventsCoordinator.getProjectIndexer().deleteIndexNoRepl(name);
+        replicatedEventsCoordinator.getProjectIndexer().deleteIndexNoRepl(name);
     }
 
     //NOTE: remote sites will call removeNoRepl and come into this
@@ -344,6 +347,7 @@ public class ProjectCacheImpl implements ProjectCache {
     // noRepl here as each site will hit this line on receipt of the above cache event.
     // remotes still need to do the list manipulation above on new projects so that resulting index is accurate
     // this allows that to occur and update index locally without sending another global index event.
+    // We must still index in NON replicated testing setup. This does not happen in the real Daemon.
     replicatedEventsCoordinator.getProjectIndexer().indexNoRepl(newProjectName);
   }
 

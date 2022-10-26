@@ -140,7 +140,7 @@ public class ReplicatedConfiguration {
 
   /**
    * Construct this singleton class, and read the configuration.. Only thing forcing singleton
-   * at moment is that its only constructed within our static replicator instance, but we will move
+   * at moment is that it's only constructed within our static replicator instance, but we will move
    * to proper singleton injected bindings later!
    *
    * @throws ConfigInvalidException
@@ -160,12 +160,14 @@ public class ReplicatedConfiguration {
     // we now throw if something wrong and stop the service starting!!
     readConfiguration(null);
 
-    try {
-      File applicationProperties = getApplicationPropsFile(getFileBasedGitConfig());
-      this.gitMsApplicationProperties = new GitMsApplicationProperties(applicationProperties.getAbsolutePath());
-    } catch (IOException | ConfigurationException e) {
-      log.error("While loading the .gitconfig file", e);
-      throw new ConfigInvalidException("Unable to continue without valid GerritMS configuration.");
+    if(configureReplication.isReplicationEnabled()) {
+      try {
+        File applicationProperties = getApplicationPropsFile(getFileBasedGitConfig());
+        this.gitMsApplicationProperties = new GitMsApplicationProperties(applicationProperties.getAbsolutePath());
+      } catch (IOException | ConfigurationException e) {
+        log.error("While loading the .gitconfig file", e);
+        throw new ConfigInvalidException("Unable to continue without valid GerritMS configuration.");
+      }
     }
   }
 
@@ -211,6 +213,14 @@ public class ReplicatedConfiguration {
 
   public Set<String> getCoreProjects() {
     return coreProjects;
+  }
+
+  public boolean isReplicationEnabled(){
+    // If configureReplication is null then we are most likely in a test and replication should be false.
+    if(configureReplication == null){
+      return false;
+    }
+    return configureReplication.isReplicationEnabled();
   }
 
   public boolean isReplicatedEventsReceive() {

@@ -19,7 +19,7 @@ public class ReplicatedIncomingProjectIndexEventProcessor extends ReplicatedEven
 
   /**
    * We only create this class from the replicatedEventsCoordinator.
-   * This is a singleton and its enforced by our SingletonEnforcement below that if anyone else tries to create
+   * This is a singleton and it's enforced by our SingletonEnforcement below that if anyone else tries to create
    * this class it will fail.
    * Sorry by adding a getInstance, make this class look much more public than it is,
    * and people expect they can just call getInstance - when in fact they should always request it via the
@@ -42,7 +42,7 @@ public class ReplicatedIncomingProjectIndexEventProcessor extends ReplicatedEven
 
   public ProjectIndexer getIndexer() {
     if (indexer == null) {
-      indexer = replicatedEventsCoordinator.getProjectIndexer();
+        indexer = replicatedEventsCoordinator.getProjectIndexer();
     }
     return indexer;
   }
@@ -69,7 +69,7 @@ public class ReplicatedIncomingProjectIndexEventProcessor extends ReplicatedEven
    */
   private boolean reindexProject(ProjectIndexEvent projectIndexEvent) {
     // If the index is to be deleted, indicated by the boolean flag in the ProjectIndexEvent
-    // then we will delete the index. Otherwise it is a normal reindex.
+    // then we will delete the index. Otherwise, it is a normal reindex.
     try {
       if (projectIndexEvent.isDeleteIndex()) {
         getIndexer().deleteIndexNoRepl(projectIndexEvent.getIdentifier());

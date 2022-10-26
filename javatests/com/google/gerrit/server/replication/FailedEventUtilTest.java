@@ -28,7 +28,7 @@ import static com.google.gerrit.server.replication.configuration.ReplicationCons
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_MAX_EVENTS_TO_APPEND_BEFORE_PROPOSING;
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.ACCOUNT_USER_INDEX_EVENT;
 
-public class FailedEventUtilTest extends AbstractReplicationTesting {
+public class FailedEventUtilTest extends AbstractReplicationSetup {
 
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
@@ -38,13 +38,9 @@ public class FailedEventUtilTest extends AbstractReplicationTesting {
 
   @Before
   public void setupTest() throws Exception {
-    // make sure we clear out and have a new coordinator for each test - sorry but otherwise we would need to be
+    // make sure we clear out and have a new coordinator for each test - sorry, but otherwise we would need to be
     // clearing out lists which would change depend on ordering!
-    Properties testingProperties = new Properties();
-
-    // SET our pool to 2 items, plus the 2 core projects.
-    dummyTestCoordinator = new TestingReplicatedEventsCoordinator(testingProperties);
-    Assert.assertNotNull(dummyTestCoordinator);
+    AbstractReplicationSetup.setupReplicatedEventsCoordinatorProps(null);
     outgoingDir = dummyTestCoordinator.getReplicatedConfiguration().getOutgoingReplEventsDirectory();
   }
 
@@ -390,7 +386,7 @@ public class FailedEventUtilTest extends AbstractReplicationTesting {
   }
 
 
-
+  @SuppressWarnings("DefaultCharset")
   private int countEventLines(final File eventFile){
     int lines = 0;
     try(BufferedReader reader = new BufferedReader(new FileReader(eventFile))){
@@ -401,7 +397,7 @@ public class FailedEventUtilTest extends AbstractReplicationTesting {
     return lines;
   }
 
-
+  @SuppressWarnings("DefaultCharset")
   private List<EventWrapper> remainingEventsList(final File eventFile){
 
     List<EventWrapper> eventWrapperList = new ArrayList<>();

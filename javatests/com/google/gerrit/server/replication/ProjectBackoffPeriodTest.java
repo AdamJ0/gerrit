@@ -17,23 +17,21 @@ import static com.google.gerrit.server.replication.configuration.ReplicationCons
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_EVENTS_BACKOFF_INITIAL_PERIOD;
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_MAX_NUM_EVENTS_RETRIES;
 
-public class ProjectBackoffPeriodTest extends AbstractReplicationTesting {
+public class ProjectBackoffPeriodTest extends AbstractReplicationSetup {
 
   @Rule
   public ExpectedException exception = ExpectedException.none();
 
   @BeforeClass
   public static void beforeClass() throws Exception {
-    AbstractReplicationTesting.beforeClass();
-
-    Properties testingProperties = new Properties();
+    Properties extraProperties = new Properties();
 
     // SET our pool to 2 items, plus the 2 core projects.
-    testingProperties.put(GERRIT_MAX_NUM_EVENTS_RETRIES, "10");
-    testingProperties.put(GERRIT_EVENTS_BACKOFF_INITIAL_PERIOD, "0.5");
-    testingProperties.put(GERRIT_EVENTS_BACKOFF_CEILING_PERIOD, "10");
+    extraProperties.put(GERRIT_MAX_NUM_EVENTS_RETRIES, "10");
+    extraProperties.put(GERRIT_EVENTS_BACKOFF_INITIAL_PERIOD, "0.5");
+    extraProperties.put(GERRIT_EVENTS_BACKOFF_CEILING_PERIOD, "10");
 
-    dummyTestCoordinator = new TestingReplicatedEventsCoordinator(testingProperties);
+    AbstractReplicationSetup.setupReplicatedEventsCoordinatorProps(extraProperties);
   }
 
   @AfterClass

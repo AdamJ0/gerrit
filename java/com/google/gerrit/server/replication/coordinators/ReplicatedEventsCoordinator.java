@@ -31,7 +31,6 @@ import com.google.gwtorm.server.SchemaFactory;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
 
 import java.util.Map;
-import java.util.Set;
 
 public interface ReplicatedEventsCoordinator extends SysInjectable, LifecycleListener {
 
@@ -71,7 +70,6 @@ public interface ReplicatedEventsCoordinator extends SysInjectable, LifecycleLis
 
 
   /* Processors */
-
   ReplicatedIncomingIndexEventProcessor getReplicatedIncomingIndexEventProcessor();
 
   ReplicatedIncomingAccountUserIndexEventProcessor getReplicatedIncomingAccountUserIndexEventProcessor();
@@ -89,7 +87,6 @@ public interface ReplicatedEventsCoordinator extends SysInjectable, LifecycleLis
 
 
   /* Feeds */
-
   ReplicatedOutgoingIndexEventsFeed getReplicatedOutgoingIndexEventsFeed();
 
   ReplicatedOutgoingCacheEventsFeed getReplicatedOutgoingCacheEventsFeed();
@@ -104,7 +101,6 @@ public interface ReplicatedEventsCoordinator extends SysInjectable, LifecycleLis
 
 
   /* Workers */
-
   ReplicatedIncomingEventWorker getReplicatedIncomingEventWorker();
 
   ReplicatedOutgoingEventWorker getReplicatedOutgoingEventWorker();

@@ -16,7 +16,7 @@ import java.io.IOException;
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.ACCOUNT_GROUP_INDEX_EVENT;
 
 
-@Singleton //Not guice bound but makes it clear that its a singleton
+@Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedIncomingAccountGroupIndexEventProcessor extends ReplicatedEventProcessorImpl {
   private static final Logger log = LoggerFactory.getLogger(
       ReplicatedIncomingAccountGroupIndexEventProcessor.class);

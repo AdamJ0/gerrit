@@ -74,8 +74,6 @@ import com.google.gerrit.server.project.ProjectState;
 import com.google.gerrit.server.project.SubmitRuleEvaluator;
 import com.google.gerrit.server.query.change.ChangeData;
 import com.google.gerrit.server.query.change.ChangeQueryProcessor;
-import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
-import com.google.gerrit.server.replication.modules.DummyReplicationModule;
 import com.google.gerrit.server.restapi.group.GroupModule;
 import com.google.gerrit.server.rules.DefaultSubmitRule;
 import com.google.gerrit.server.rules.IgnoreSelfApprovalRule;
@@ -118,11 +116,8 @@ public class BatchProgramModule extends FactoryModule {
     install(new DefaultUrlFormatter.Module());
 
     /* BatchProgramModule is used by Reindex and RebuildNoteDb entry-points. These should not be replicated.
-     Therefore we do not want to bind the ReplicationModule. We only bind the DummyReplicationModule.
      Here we are setting a wandisco section and key/val pair for stating that replication is disabled */
     cfg.setBoolean("wandisco", null, "gerritmsReplicationDisabled", true);
-    install(new ReplicatedConfiguration.Module());
-    install(new DummyReplicationModule());
 
     // There is the concept of LifecycleModule, in Gerrit's own extension to Guice, which has these:
     //  listener().to(SomeClassImplementingLifecycleListener.class);

@@ -15,7 +15,9 @@
 package com.google.gerrit.server.notedb;
 
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_EVENTS_BACKOFF_CEILING_PERIOD;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_EVENTS_BACKOFF_INITIAL_PERIOD;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_MAX_NUM_EVENTS_RETRIES;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.eclipse.jgit.lib.Constants.OBJ_BLOB;
 import static org.junit.Assert.fail;
@@ -27,9 +29,7 @@ import com.google.common.util.concurrent.Runnables;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.reviewdb.client.RefNames;
 import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
-import com.google.gerrit.server.replication.AbstractReplicationTesting;
-import com.google.gerrit.server.replication.TestingReplicatedEventsCoordinator;
-import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
+import com.google.gerrit.server.replication.AbstractReplicationSetup;
 import com.google.gerrit.testing.InMemoryRepositoryManager;
 import com.google.gwtorm.server.OrmException;
 import java.io.IOException;
@@ -44,13 +44,13 @@ import org.eclipse.jgit.lib.ObjectInserter;
 import org.eclipse.jgit.lib.RefUpdate;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
-import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-public class RepoSequenceTest extends AbstractReplicationTesting {
+public class RepoSequenceTest extends AbstractReplicationSetup {
   // Don't sleep in tests.
   private static final Retryer<RefUpdate.Result> RETRYER =
       RepoSequence.retryerBuilder().withBlockStrategy(t -> {}).build();
@@ -60,19 +60,23 @@ public class RepoSequenceTest extends AbstractReplicationTesting {
   private InMemoryRepositoryManager repoManager;
   private Project.NameKey project;
 
+  @BeforeClass
+  public static void beforeClass() throws Exception {
+    Properties extraProperties = new Properties();
+
+    // SET our pool to 2 items, plus the 2 core projects.
+    extraProperties.put(GERRIT_MAX_NUM_EVENTS_RETRIES, "10");
+    extraProperties.put(GERRIT_EVENTS_BACKOFF_INITIAL_PERIOD, "0.5");
+    extraProperties.put(GERRIT_EVENTS_BACKOFF_CEILING_PERIOD, "10");
+
+    AbstractReplicationSetup.setupReplicatedEventsCoordinatorProps(extraProperties);
+  }
+
   @Before
   public void setUp() throws Exception {
     repoManager = new InMemoryRepositoryManager();
     project = new Project.NameKey("project");
     repoManager.createRepository(project);
-
-    // make sure we clear out and have a new coordinator for each test -
-    // sorry but otherwise we would need to be clearing out lists which would change depend on ordering!
-    Properties testingProperties = new Properties();
-    testingProperties.put(GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE, "2");
-
-    dummyTestCoordinator = new TestingReplicatedEventsCoordinator(testingProperties);
-    Assert.assertNotNull(dummyTestCoordinator);
   }
 
   @Test
@@ -370,7 +374,7 @@ public class RepoSequenceTest extends AbstractReplicationTesting {
       Runnable afterReadRef,
       Retryer<RefUpdate.Result> retryer) {
     return new RepoSequence(
-        dummyTestCoordinator,
+        dummyTestCoordinator.getReplicatedConfiguration(),
         repoManager,
         GitReferenceUpdated.DISABLED,
         project,

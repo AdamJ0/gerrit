@@ -11,17 +11,17 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.sql.Timestamp;
 
-@Singleton //Not guice bound but makes it clear that its a singleton
+@Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedOutgoingIndexEventsFeed extends ReplicatedOutgoingEventsFeedCommon {
   private static final Logger log = LoggerFactory.getLogger(ReplicatedOutgoingIndexEventsFeed.class);
 
   /**
-   * We only create this class from the replicatedEventscoordinator.
-   * This is a singleton and its enforced by our SingletonEnforcement below that if anyone else tries to create
+   * We only create this class from the replicatedEventsCoordinator.
+   * This is a singleton and it's enforced by our SingletonEnforcement below that if anyone else tries to create
    * this class it will fail.
    * Sorry by adding a getInstance, make this class look much more public than it is,
    * and people expect they can just call getInstance - when in fact they should always request it via the
-   * ReplicatedEventsCordinator.getReplicatedXWorker() methods.
+   * ReplicatedEventsCoordinator.getReplicatedXWorker() methods.
    * @param eventsCoordinator
    */
   public ReplicatedOutgoingIndexEventsFeed(ReplicatedEventsCoordinator eventsCoordinator) {
@@ -33,7 +33,7 @@ public class ReplicatedOutgoingIndexEventsFeed extends ReplicatedOutgoingEventsF
    * Main method used by the gerrit ChangeIndexer to communicate that a new index event has happened
    * and must be replicated across the nodes.
    * <p>
-   * This will enqueue the the event for async replication
+   * This will enqueue the event for async replication
    *
    * @param indexNumber
    * @param projectName
@@ -61,7 +61,7 @@ public class ReplicatedOutgoingIndexEventsFeed extends ReplicatedOutgoingEventsF
    * and must be replicated across the nodes with an additional boolean flag to indicate if the index
    * to be updated is being deleted.
    * <p>
-   * This will enqueue the the event for async replication
+   * This will enqueue the event for async replication
    *
    * @param indexNumber
    * @param projectName

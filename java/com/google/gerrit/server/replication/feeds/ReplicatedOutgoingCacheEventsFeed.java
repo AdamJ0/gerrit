@@ -110,7 +110,6 @@ public class ReplicatedOutgoingCacheEventsFeed extends ReplicatedOutgoingEventsF
 
     String allUsers = replicatedEventsCoordinator.getReplicatedConfiguration().getAllUsersName();
 
-
     if (key.toString().equals(evictAllWildCard)){
       log.info("CACHE key is [ {} ] so evicting all from cache: [ {} ]", evictAllWildCard, cacheName);
     }

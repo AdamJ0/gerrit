@@ -35,6 +35,7 @@ import com.google.gerrit.server.config.GerritRuntime;
 import com.google.gerrit.server.config.GerritServerConfig;
 import com.google.gerrit.server.config.SitePath;
 import com.google.gerrit.server.git.receive.AsyncReceiveCommits;
+import com.google.gerrit.server.replication.modules.NonReplicatedCoordinatorModule;
 import com.google.gerrit.server.ssh.NoSshModule;
 import com.google.gerrit.server.util.ManualRequestContext;
 import com.google.gerrit.server.util.OneOffRequestContext;
@@ -365,7 +366,7 @@ public class GerritServer implements AutoCloseable {
               }
             }));
     daemon.addAdditionalSysModuleForTesting(
-        new ReindexProjectsAtStartup.Module(), new ReindexGroupsAtStartup.Module());
+        new ReindexProjectsAtStartup.Module(), new ReindexGroupsAtStartup.Module(), new NonReplicatedCoordinatorModule());
     daemon.start();
     return new GerritServer(desc, null, createTestInjector(daemon), daemon, null);
   }

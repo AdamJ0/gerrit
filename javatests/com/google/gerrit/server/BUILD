@@ -41,6 +41,7 @@ junit_tests(
         "//java/com/google/gerrit/extensions/common/testing:common-test-util",
         "//java/com/google/gerrit/index",
         "//java/com/google/gerrit/index:query_exception",
+        "//java/com/google/gerrit/index/project",
         "//java/com/google/gerrit/lifecycle",
         "//java/com/google/gerrit/mail",
         "//java/com/google/gerrit/metrics",
@@ -76,5 +77,6 @@ junit_tests(
         "//lib/truth:truth-java8-extension",
         "//lib/truth:truth-proto-extension",
         "//proto:cache_java_proto",
+        "@gerrit-gitms-interface//jar",
     ],
 )

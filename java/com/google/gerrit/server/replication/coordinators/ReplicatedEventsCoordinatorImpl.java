@@ -115,6 +115,25 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
     this.gitRepositoryManager = gitRepositoryManager;
     this.gson = gson;
 
+    if(!isReplicationEnabled()){
+      replicatedIncomingEventWorker = null;
+      replicatedOutgoingEventWorker = null;
+      replicatedIncomingIndexEventProcessor = null;
+      replicatedIncomingAccountUserIndexEventProcessor = null;
+      replicatedIncomingAccountGroupIndexEventProcessor = null;
+      replicatedIncomingServerEventProcessor = null;
+      replicatedIncomingCacheEventProcessor = null;
+      replicatedIncomingProjectEventProcessor = null;
+      replicatedIncomingProjectIndexEventProcessor = null;
+      replicatedOutgoingIndexEventsFeed = null;
+      replicatedOutgoingCacheEventsFeed = null;
+      replicatedOutgoingProjectEventsFeed = null;
+      replicatedOutgoingAccountBaseIndexEventsFeed = null;
+      replicatedOutgoingProjectIndexEventsFeed = null;
+      replicatedScheduling = null;
+      return;
+    }
+
     ensureEventsDirectoriesExist();
 
 
@@ -164,11 +183,17 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
   public void start() {
     // we can delay start if need be / checking other items.... only if we can't create something early because
     // of cyclic dependencies would I normally use this, or something that needs to wait for other threads to start.
+    if(!isReplicationEnabled()){
+      return;
+    }
     replicatedScheduling.startScheduledWorkers();
   }
 
   @Override
   public void stop() {
+    if(!isReplicationEnabled()){
+      return;
+    }
     // lets kill our processors.
     replicatedIncomingCacheEventProcessor.stop();
     replicatedIncomingAccountUserIndexEventProcessor.stop();

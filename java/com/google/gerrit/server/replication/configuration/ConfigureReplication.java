@@ -7,7 +7,7 @@ import org.eclipse.jgit.lib.Config;
 
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.REPLICATION_DISABLED;
 
-@Singleton //Not guice bound but makes it clear that its a singleton
+@Singleton //Not guice bound but makes it clear that it's a singleton
 public final class ConfigureReplication {
 
   // A flag, which allow there to be no application properties and for us to behave like a normal vanilla non replicated environment.
@@ -78,7 +78,7 @@ public final class ConfigureReplication {
    */
   private boolean getOverrideBehaviour(String overrideName) {
 
-    // work out system env value first... Note as env is case sensitive and properties usually lower case, we will
+    // work out system env value first... Note as env is case-sensitive and properties usually lower case, we will
     // use what the client has passed in, but also request toUpper for the environment option JIC.
     // e.g. 'replication_disabled' the property would be 'REPLICATION_DISABLED' the environment var.
     String env = System.getenv(overrideName);

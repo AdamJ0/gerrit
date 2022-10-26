@@ -1,7 +1,5 @@
 package com.google.gerrit.server.replication;
 
-import com.google.gerrit.server.replication.FailedEventUtil;
-import com.google.gerrit.server.replication.GerritEventFactory;
 import com.google.gerrit.server.replication.customevents.IndexToReplicate;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
@@ -28,13 +26,12 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Properties;
 import java.util.Random;
 import java.util.zip.GZIPInputStream;
 
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.ENC;
 
-public class CustomGsonDeserializerTest extends AbstractReplicationTesting {
+public class CustomGsonDeserializerTest extends AbstractReplicationSetup {
 
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
@@ -42,11 +39,9 @@ public class CustomGsonDeserializerTest extends AbstractReplicationTesting {
 
   @Before
   public void setupTest() throws Exception {
-    // make sure we clear out and have a new coordinator for each test - sorry but otherwise we would need to be
+    // make sure we clear out and have a new coordinator for each test - sorry, but otherwise we would need to be
     // clearing out lists which would change depend on ordering!
-    Properties testingProperties = new Properties();
-    dummyTestCoordinator = new TestingReplicatedEventsCoordinator(testingProperties);
-    Assert.assertNotNull(dummyTestCoordinator);
+    AbstractReplicationSetup.setupReplicatedEventsCoordinatorProps(null);
   }
 
 

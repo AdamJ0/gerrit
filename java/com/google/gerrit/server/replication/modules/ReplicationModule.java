@@ -1,7 +1,6 @@
 package com.google.gerrit.server.replication.modules;
 
 import com.google.common.base.Supplier;
-import com.google.gerrit.server.notedb.RepoSequence;
 import com.google.gerrit.server.replication.GerritEventFactory;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingServerEventsFeed;
 import com.google.gerrit.lifecycle.LifecycleModule;

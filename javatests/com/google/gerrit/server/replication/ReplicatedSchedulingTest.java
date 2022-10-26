@@ -18,11 +18,10 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
-import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE;
 import static com.google.gerrit.server.replication.processors.ReplicatedIncomingIndexEventProcessor.buildListOfMissingIds;
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.ACCOUNT_USER_INDEX_EVENT;
 
-public class ReplicatedSchedulingTest extends AbstractReplicationTesting {
+public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
 
   @Rule
   public ExpectedException expectedException = ExpectedException.none();
@@ -31,13 +30,9 @@ public class ReplicatedSchedulingTest extends AbstractReplicationTesting {
 
   @Before
   public void setupTest() throws Exception {
-    // make sure we clear out and have a new coordinator for each test - sorry but otherwise we would need to be
+    // make sure we clear out and have a new coordinator for each test - sorry, but otherwise we would need to be
     // clearing out lists which would change depend on ordering!
-    Properties testingProperties = new Properties();
-
-    // SET our pool to 2 items, plus the 2 core projects.
-    testingProperties.put(GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE, "2");
-    dummyTestCoordinator = new TestingReplicatedEventsCoordinator(testingProperties);
+    AbstractReplicationSetup.setupReplicatedEventsCoordinatorProps(null);
     scheduling = new ReplicatedScheduling(dummyTestCoordinator);
     HashMap<String, ReplicatedEventTask> eventFilesInProgress = scheduling.getCopyEventsFilesInProgress();
 

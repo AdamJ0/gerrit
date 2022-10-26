@@ -42,7 +42,7 @@ import com.google.gerrit.server.group.db.InternalGroupUpdate;
 import com.google.gerrit.server.index.group.GroupIndex;
 import com.google.gerrit.server.index.group.GroupIndexCollection;
 import com.google.gerrit.server.notedb.NotesMigration;
-import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
+import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gerrit.server.update.RefUpdateUtil;
 import com.google.gwtorm.jdbc.JdbcExecutor;
 import com.google.gwtorm.jdbc.JdbcSchema;
@@ -75,7 +75,7 @@ public class SchemaCreator {
   private final MetricMaker metricMaker;
   private final NotesMigration migration;
   private final AllProjectsName allProjectsName;
-  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
+  private final ReplicatedConfiguration replicatedConfiguration;
 
   @Inject
   public SchemaCreator(
@@ -92,7 +92,7 @@ public class SchemaCreator {
       MetricMaker metricMaker,
       NotesMigration migration,
       AllProjectsName apName,
-      ReplicatedEventsCoordinator replicatedEventsCoordinator) {
+      ReplicatedConfiguration replicatedConfiguration) {
     this(
         site.site_path,
         repoManager,
@@ -107,7 +107,7 @@ public class SchemaCreator {
         metricMaker,
         migration,
         apName,
-        replicatedEventsCoordinator);
+        replicatedConfiguration);
   }
 
   public SchemaCreator(
@@ -124,7 +124,7 @@ public class SchemaCreator {
       MetricMaker metricMaker,
       NotesMigration migration,
       AllProjectsName apName,
-      ReplicatedEventsCoordinator replicatedEventsCoordinator) {
+      ReplicatedConfiguration replicatedConfiguration) {
     site_path = site;
     this.repoManager = repoManager;
     allProjectsCreator = ap;
@@ -139,7 +139,7 @@ public class SchemaCreator {
     this.allProjectsName = apName;
     this.migration = migration;
     this.metricMaker = metricMaker;
-    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
+    this.replicatedConfiguration = replicatedConfiguration;
   }
 
   public void create(ReviewDb db) throws OrmException, IOException, ConfigInvalidException {
@@ -170,7 +170,7 @@ public class SchemaCreator {
             allProjectsName,
             allUsersName,
             metricMaker,
-            replicatedEventsCoordinator);
+            replicatedConfiguration);
     try (Repository allUsersRepo = repoManager.openRepository(allUsersName)) {
       createAdminsGroup(seqs, allUsersRepo, admins);
       createBatchUsersGroup(seqs, allUsersRepo, batchUsers, admins.getUUID());

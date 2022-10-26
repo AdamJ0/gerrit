@@ -64,6 +64,7 @@ import com.google.gerrit.server.project.ProjectConfig;
 import com.google.gerrit.server.project.ProjectState;
 import com.google.gerrit.server.project.RefPattern;
 import com.google.gerrit.server.project.testing.Util;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.server.schema.SchemaCreator;
 import com.google.gerrit.server.util.RequestContext;
 import com.google.gerrit.server.util.ThreadLocalRequestContext;
@@ -225,6 +226,7 @@ public class RefControlTest {
   @Inject private TransferConfig transferConfig;
   @Inject private MetricMaker metricMaker;
   @Inject private RefVisibilityControl refVisibilityControl;
+  @Inject private ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
   @Before
   public void setUp() throws Exception {
@@ -322,7 +324,7 @@ public class RefControlTest {
 
     Cache<SectionSortCache.EntryKey, SectionSortCache.EntryVal> c =
         CacheBuilder.newBuilder().build();
-    sectionSorter = new PermissionCollection.Factory(new SectionSortCache(c, null), metricMaker);
+    sectionSorter = new PermissionCollection.Factory(new SectionSortCache(c, replicatedEventsCoordinator), metricMaker);
 
     parent = new ProjectConfig(parentKey);
     parent.load(newRepository(parentKey));

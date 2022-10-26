@@ -38,7 +38,7 @@ import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.reviewdb.client.RefNames;
 import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
 import com.google.gerrit.server.git.GitRepositoryManager;
-import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
+import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gwtorm.server.OrmException;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -104,7 +104,7 @@ public class RepoSequence {
 
   private static Retryer<RefUpdate.Result> RETRYER = retryerBuilder().build();
 
-  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
+  private final ReplicatedConfiguration replicatedConfiguration;
   private final GitRepositoryManager repoManager;
   private final GitReferenceUpdated gitRefUpdated;
   private final Project.NameKey projectName;
@@ -125,7 +125,7 @@ public class RepoSequence {
   @VisibleForTesting int acquireCount;
 
   public RepoSequence(
-      ReplicatedEventsCoordinator replicatedEventsCoordinator,
+      ReplicatedConfiguration replicatedConfiguration,
       GitRepositoryManager repoManager,
       GitReferenceUpdated gitRefUpdated,
       Project.NameKey projectName,
@@ -133,7 +133,7 @@ public class RepoSequence {
       Seed seed,
       int batchSize) {
     this(
-        replicatedEventsCoordinator,
+        replicatedConfiguration,
         repoManager,
         gitRefUpdated,
         projectName,
@@ -146,7 +146,7 @@ public class RepoSequence {
   }
 
   public RepoSequence(
-      ReplicatedEventsCoordinator replicatedEventsCoordinator,
+      ReplicatedConfiguration replicatedConfiguration,
       GitRepositoryManager repoManager,
       GitReferenceUpdated gitRefUpdated,
       Project.NameKey projectName,
@@ -155,7 +155,7 @@ public class RepoSequence {
       int batchSize,
       int floor) {
     this(
-        replicatedEventsCoordinator,
+        replicatedConfiguration,
         repoManager,
         gitRefUpdated,
         projectName,
@@ -170,7 +170,7 @@ public class RepoSequence {
   @VisibleForTesting
   @Inject
   public RepoSequence(
-      ReplicatedEventsCoordinator replicatedEventsCoordinator,
+      ReplicatedConfiguration replicatedConfiguration,
       GitRepositoryManager repoManager,
       GitReferenceUpdated gitRefUpdated,
       Project.NameKey projectName,
@@ -179,11 +179,11 @@ public class RepoSequence {
       int batchSize,
       Runnable afterReadRef,
       Retryer<RefUpdate.Result> retryer) {
-    this(replicatedEventsCoordinator, repoManager, gitRefUpdated, projectName, name, seed, batchSize, afterReadRef, retryer, 0);
+    this(replicatedConfiguration, repoManager, gitRefUpdated, projectName, name, seed, batchSize, afterReadRef, retryer, 0);
   }
 
   RepoSequence(
-      ReplicatedEventsCoordinator replicatedEventsCoordinator,
+      ReplicatedConfiguration replicatedConfiguration,
       GitRepositoryManager repoManager,
       GitReferenceUpdated gitRefUpdated,
       Project.NameKey projectName,
@@ -193,7 +193,7 @@ public class RepoSequence {
       Runnable afterReadRef,
       Retryer<RefUpdate.Result> retryer,
       int floor) {
-    this.replicatedEventsCoordinator = requireNonNull(replicatedEventsCoordinator, "replicatedEventsCoordinator");
+    this.replicatedConfiguration = requireNonNull(replicatedConfiguration, "replicatedConfiguration");
     this.repoManager = requireNonNull(repoManager, "repoManager");
     this.gitRefUpdated = requireNonNull(gitRefUpdated, "gitRefUpdated");
     this.projectName = requireNonNull(projectName, "projectName");
@@ -438,12 +438,12 @@ public class RepoSequence {
 
     // If replication is disabled, just store the sequence number directly as we don't need to disambiguate the blobs
     // by node-id.
-    if (!replicatedEventsCoordinator.isReplicationEnabled()) {
+    if (!replicatedConfiguration.isReplicationEnabled()) {
       return Integer.toString(val);
     }
 
     // The format of the tuple in the replicated scenario will be NodeId:Sequence#.
-    final String nodeId = requireNonNull(replicatedEventsCoordinator.getThisNodeIdentity());
+    final String nodeId = requireNonNull(replicatedConfiguration.getThisNodeIdentity());
     return String.format("%s%s%d", nodeId, SEQUENCE_TUPLE_DELIMITER, val);
   }
 

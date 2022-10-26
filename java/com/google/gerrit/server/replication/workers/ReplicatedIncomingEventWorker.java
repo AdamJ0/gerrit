@@ -14,7 +14,6 @@ import com.google.gerrit.server.replication.exceptions.ReplicatedEventsDBNotUpTo
 import com.google.gerrit.server.replication.exceptions.ReplicatedEventsImmediateFailWithoutBackoffException;
 import com.google.gerrit.server.replication.exceptions.ReplicatedEventsMissingChangeInformationException;
 import com.google.gerrit.server.replication.exceptions.ReplicatedEventsUnknownTypeException;
-import com.google.gerrit.server.replication.processors.ReplicatedEventProcessor;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import com.google.inject.Singleton;
@@ -39,13 +38,12 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPInputStream;
 
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.INCOMING_EVENTS_FILE_PREFIX;
 
-@Singleton //Not guice bound but makes it clear that its a singleton
+@Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedIncomingEventWorker implements Runnable {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
@@ -58,12 +56,12 @@ public class ReplicatedIncomingEventWorker implements Runnable {
   private final Gson gson;
 
   /**
-   * We only create this class from the replicatedEventscoordinator.
-   * This is a singleton and its enforced by our SingletonEnforcement below that if anyone else tries to create
+   * We only create this class from the replicatedEventsCoordinator.
+   * This is a singleton, and it's enforced by our SingletonEnforcement below that if anyone else tries to create
    * this class it will fail.
    * Sorry by adding a getInstance, make this class look much more public than it is,
    * and people expect they can just call getInstance - when in fact they should always request it via the
-   * ReplicatedEventsCordinator.getReplicatedXWorker() methods.
+   * ReplicatedEventsCoordinator.getReplicatedXWorker() methods.
    *
    * @param replicatedEventsCoordinator
    */
@@ -93,7 +91,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
         return;
       }
 
-      // we dont want to take the main process of gerrit out - let it try to recover.
+      // we don't want to take the main process of gerrit out - let it try to recover.
       logger.atSevere().withCause(t).log("Worker experienced exception - attempting to recover.");
     }
   }
@@ -241,13 +239,13 @@ public class ReplicatedIncomingEventWorker implements Runnable {
       // Make sure our list of files is now in time order.
       Arrays.sort(listFiles);
 
-      // Lets process each file in time order.  We will check if we can scheduling work for a given project,
+      // Let's process each file in time order.  We will check if we can schedule work for a given project,
       // if not it will be skipped over and remembered, in case we hit another event later for same project.
       // This allows us to keep the correct ordering by swapping out skipped over event files if required.
       for (File file : listFiles) {
 
         // note we check the old list, so our snapshot of file listings, checks the wip at the time,
-        // if we get a wip hit, we just skip that item, it may already have finished but that's ok and its
+        // if we get a wip hit, we just skip that item, it may already have finished but that's ok and It's
         // why we do not check the current WIP list, this is much better for performance.
         if (dirtyCopyOfWIPFiles.contains(file)) {
           logger.atFinest().log("EventFile: [ %s ] was already in progress, skipping it", file.getName());
@@ -339,7 +337,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
 
   /**
    * From the bytes we read from disk, we get passed the created EventWrapper list in a sorted order.
-   * We then process this list, and send them off to the appropriate processessors, to handle index/account/project
+   * We then process this list, and send them off to the appropriate processors, to handle index/account/project
    * type events differently.
    * <p>
    * N.B. Error handling descriptions and processing are described by GER-1483 / GER-1769.
@@ -381,7 +379,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
           case ACCOUNT_GROUP_INDEX_EVENT :
           case PROJECTS_INDEX_EVENT:
           case DELETE_PROJECT_EVENT:
-            // De-serializing the event from json. Event is is cast to its supertype so that we can pass
+            // De-serializing the event from json. Event is cast to its supertype so that we can pass
             // it to the processIncomingReplicatedEvents method of the ReplicatedEventProcessor interface.
             // ReplicatedEvent can then be downcast to its underlying type in the respective processing method.
             ReplicatedEvent replicatedEvent = (ReplicatedEvent) gson.fromJson(originalEvent.getEvent(), eventClass);
@@ -410,8 +408,8 @@ public class ReplicatedIncomingEventWorker implements Runnable {
         }
 
       } catch (JsonSyntaxException e) {
-        // JsonSyntax inside an event wrapper is deemed to be not transient and wont change, as such
-        // dont backoff (so dont break out), lets just try the remaining items now and fail.
+        // JsonSyntax inside an event wrapper is deemed to be not transient and won't change, as such
+        // don't backoff (so don't break out), lets just try the remaining items now and fail.
         logger.atSevere().withCause(e).log(
             "RE event has been lost. Could not rebuild obj using GSON %s", originalEvent);
         failedEvents++;
@@ -429,7 +427,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
         // indicate failure on this event file group to back it off, increment the failure counter,
         // update the event file to remove any passed/processed successfully events.
         // it may end up with the remainder moving to the failed directory unlike DbStale below which HAS to keep
-        // the file until the DB is finally up to date!
+        // the file until the DB is finally up-to-date!
         failedEvents++;
         // ok we didn't find some change information - for this case we want to remove the items we have up until this point.
         logger.atWarning().withCause(e).log(
@@ -464,11 +462,11 @@ public class ReplicatedIncomingEventWorker implements Runnable {
     // See GER-1483 / GER-1769 for info on how to handle errors in the index events.
     // Basically failures falls into these categories:
     // All success - just clear out as normal.
-    // DBStale for some reason - backoff but never finally FAIL and delete/move the file until DB is up to date.
-    // JsonProcessing / Class Not found exception - Immediately fail type errors which wont change with backoffs,
-    //                                              so attempt remainder in file and move reaminder to Failed
+    // DBStale for some reason - backoff but never finally FAIL and delete/move the file until DB is up-to-date.
+    // JsonProcessing / Class Not found exception - Immediately fail type errors which won't change with backoffs,
+    //                                              so attempt remainder in file and move remainder to Failed
     // Transient failures(Default Behaviour) - backoff with increasing time periods until eventually it hits last retry
-    //                                          it then attempts to process remaining items and then it can be moved to failed.
+    //                                          it then attempts to process remaining items, and then it can be moved to failed.
     if (failedEvents > 0) {
       logger.atWarning().log(
           "RE There was %s failed event(s) in replicated event task %s, checking failure behaviour now. UseFailImmediately: %s, DbConsideredStale: %s",
@@ -481,7 +479,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
     // All worked just as it should, lets delete the file here.
     logger.atInfo().log("RE Completed processing replicated event task [ %s ] successfully.",
         replicatedEventTask.toFriendlyInfo());
-    // lets lock and delete the file along with update the in progress map as a joint operation.
+    // let's lock and delete the file along with update the in progress map as a joint operation.
     synchronized (replicatedScheduling.getEventsFileInProgressLock()) {
       attemptDeleteEventFile(eventsFileBeingProcessed);
       replicatedScheduling.clearEventsFileInProgress(replicatedEventTask, false);
@@ -658,8 +656,8 @@ public class ReplicatedIncomingEventWorker implements Runnable {
       // indicate number of events in this event file.
       replicatedEventTask.setNumEventsToProcess(sortedEvents.size());
 
-      // All processing of failures now should happen closer to the each event being processed inside publishEvents.
-      // Just incase we need to filter out completed events.  So the only exception we ever handle here is a corruption
+      // All processing of failures now should happen closer to the event being processed inside publishEvents.
+      // Just in case we need to filter out completed events.  So the only exception we ever handle here is a corruption
       // case which supports direct move to the failed directory below.
       publishEvents(sortedEvents, replicatedEventTask);
 
@@ -709,7 +707,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
       // we didn't contain this skipped project info - as such lets just mark it to start the backoff.
       replicatedScheduling.addSkipThisProjectsEventsForNow(projectName);
       // now make sure we add this event into the skipped list - so we know its being skipped over,
-      // and we dont schedule another file later on ahead of this one when the backoff period has expired.
+      // and we don't schedule another file later on ahead of this one when the backoff period has expired.
       // Note this should be a prepend for a simple list, but we use an ordered queue to regardless if will
       // jump to the HEAD of the FIFO.
       replicatedScheduling.prependSkippedProjectEventFile(eventsFileBeingProcessed, projectName);
@@ -794,7 +792,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
       return;
     }
 
-    // Lets work out the remaining items to pass to the persister. We remove the events that have been correctly
+    // Let's work out the remaining items to pass to the persister. We remove the events that have been correctly
     // processed from the list of all events being processed leaving only the events that have not been
     // correctly processed (which may include failed events).
     List<EventWrapper> remainingEvents = new LinkedList<>(allEventsBeingProcessed);
@@ -809,10 +807,10 @@ public class ReplicatedIncomingEventWorker implements Runnable {
 
   private void attemptDeleteEventFile(File eventsFileBeingProcessed) {
     // We want to delete events files that have been published
-    // as there is no need for them to linger in the incoming directory, specific jgit failures are requeued as
-    // new events..
+    // as there is no need for them to linger in the incoming directory, specific jgit failures are re-queued as
+    // new events.
     // the only time we back off the entire file / group of events is for a custom exception which indicates
-    // the DB is not up to date, or there was a json processing exception where we instead take this entire file and requeue.
+    // the DB is not up-to-date, or there was a json processing exception where we instead take this entire file and requeue.
     // everything else deletes the events file when finished processing.
     logger.atFine().log("Deleting event file %s", eventsFileBeingProcessed.getAbsolutePath());
 

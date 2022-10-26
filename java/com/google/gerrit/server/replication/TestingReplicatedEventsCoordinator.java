@@ -36,6 +36,8 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.REPLICATION_DISABLED;
+
 
 public class TestingReplicatedEventsCoordinator implements ReplicatedEventsCoordinator {
 
@@ -43,6 +45,7 @@ public class TestingReplicatedEventsCoordinator implements ReplicatedEventsCoord
 
   public TestingReplicatedEventsCoordinator() throws ConfigInvalidException {
     Properties testingProperties = new Properties();
+    testingProperties.put(REPLICATION_DISABLED, true);
     replicatedConfiguration = new ReplicatedConfiguration(testingProperties);
   }
 

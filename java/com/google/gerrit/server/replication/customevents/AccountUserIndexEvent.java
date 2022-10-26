@@ -29,8 +29,8 @@ import java.io.Serializable;
  * To overcome this Gerrit has a secondary index for accounts. The account index is either based
  * on Lucene or Elasticsearch.
  *
- * Accounts are automatically reindexed on any update. The Index Account REST endpoint allows to
- * reindex an account manually. In addition the reindex program can be used to reindex all accounts offline.
+ * Accounts are automatically re-indexed on any update. The Index Account REST endpoint allows to
+ * reindex an account manually. In addition, the reindex program can be used to reindex all accounts offline.
  */
 public class AccountUserIndexEvent extends AccountIndexEventBase {
   public Account.Id id;

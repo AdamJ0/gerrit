@@ -1,5 +1,6 @@
 package com.google.gerrit.server.replication.coordinators;
 
+import com.google.common.base.Verify;
 import com.google.gerrit.index.project.ProjectIndexer;
 import com.google.gerrit.server.index.group.GroupIndexer;
 import com.google.gerrit.server.notedb.ChangeNotes;
@@ -29,20 +30,47 @@ import com.google.gson.Gson;
 import com.google.gwtorm.server.SchemaFactory;
 import com.google.inject.Inject;
 import com.google.inject.Injector;
+import com.google.inject.Provider;
 import com.google.inject.Singleton;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
 
 import java.util.Map;
-import java.util.Set;
 
 @Singleton
-public class DummyReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordinator {
+public class NonReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordinator {
 
   private final ReplicatedConfiguration replicatedConfiguration;
 
+  private final Provider<SchemaFactory<ReviewDb>> schemaFactory;
+  private final Provider<ChangeNotes.Factory> notesFactory;
+
+  private final Provider<ChangeIndexer> changeIndexer;
+  private final Provider<AccountIndexer> accountIndexer;
+  private final Provider<GroupIndexer> groupIndexer;
+  private final Provider<ProjectIndexer> projectIndexer;
+
+  private final GitRepositoryManager gitRepositoryManager;
+
+
+
   @Inject
-  DummyReplicatedEventsCoordinatorImpl(ReplicatedConfiguration replicatedConfiguration) {
-    this.replicatedConfiguration = replicatedConfiguration;
+  public NonReplicatedEventsCoordinatorImpl(ReplicatedConfiguration configuration,
+                                         Provider<SchemaFactory<ReviewDb>> schemaFactory,
+                                         Provider<ChangeNotes.Factory> notesFactory,
+                                         Provider<ChangeIndexer> changeIndexer,
+                                         Provider<AccountIndexer> accountIndexer,
+                                         Provider<GroupIndexer> groupIndexer,
+                                         Provider<ProjectIndexer> projectIndexer,
+                                         GitRepositoryManager gitRepositoryManager) throws Exception {
+    Verify.verifyNotNull(configuration);
+    this.replicatedConfiguration = configuration;
+    this.schemaFactory = schemaFactory;
+    this.notesFactory = notesFactory;
+    this.changeIndexer = changeIndexer;
+    this.accountIndexer = accountIndexer;
+    this.groupIndexer = groupIndexer;
+    this.projectIndexer = projectIndexer;
+    this.gitRepositoryManager = gitRepositoryManager;
   }
 
   @Override
@@ -70,22 +98,22 @@ public class DummyReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoo
 
   @Override
   public ChangeIndexer getChangeIndexer() {
-    throw new UnsupportedOperationException("getChangeIndexer: Unable to get access to replicated objects when not using replicated entry points.");
+    return changeIndexer.get();
   }
 
   @Override
   public AccountIndexer getAccountIndexer() {
-    throw new UnsupportedOperationException("getAccountIndexer: Unable to get access to replicated objects when not using replicated entry points.");
+    return accountIndexer.get();
   }
 
   @Override
   public GroupIndexer getGroupIndexer() {
-    throw new UnsupportedOperationException("getGroupIndexer: Unable to get access to replicated objects when not using replicated entry points.");
+    return groupIndexer.get();
   }
 
   @Override
   public ProjectIndexer getProjectIndexer() {
-    throw new UnsupportedOperationException("getProjectIndexer: Unable to get access to replicated objects when not using replicated entry points.");
+    return projectIndexer.get();
   }
 
   @Override
@@ -94,13 +122,24 @@ public class DummyReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoo
   }
 
   @Override
+  public GitRepositoryManager getGitRepositoryManager() {
+    return gitRepositoryManager;
+  }
+
+  @Override
   public Gson getGson() {
     throw new UnsupportedOperationException("getGson: Unable to get access to replicated objects when not using replicated entry points.");
   }
 
   @Override
-  public GitRepositoryManager getGitRepositoryManager() {
-    throw new UnsupportedOperationException("getGitRepositoryManager: Unable to get access to replicated objects when not using replicated entry points.");
+  public SchemaFactory<ReviewDb> getSchemaFactory() {
+    return schemaFactory.get();
+  }
+
+
+  @Override
+  public ChangeNotes.Factory getChangeNotesFactory(){
+    return notesFactory.get();
   }
 
   @Override
@@ -108,16 +147,6 @@ public class DummyReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoo
     throw new UnsupportedOperationException("getReplicatedProcessors: Unable to get access to replicated objects when not using replicated entry points.");
   }
 
-  @Override
-  public SchemaFactory<ReviewDb> getSchemaFactory() {
-    throw new UnsupportedOperationException("getSchemaFactory: Unable to get access to replicated objects when not using replicated entry points.");
-
-  }
-
-  @Override
-  public ChangeNotes.Factory getChangeNotesFactory() {
-    throw new UnsupportedOperationException("getChangeNotesFactory: Unable to get access to replicated objects when not using replicated entry points.");
-  }
 
   @Override
   public void subscribeEvent(EventWrapper.Originator eventType, ReplicatedEventProcessor toCall) {

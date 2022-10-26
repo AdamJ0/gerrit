@@ -50,6 +50,7 @@ import com.google.inject.util.Providers;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+
 import org.eclipse.jgit.lib.Config;
 
 class InMemoryTestingDatabaseModule extends LifecycleModule {

@@ -36,6 +36,7 @@ import com.google.gerrit.extensions.systemstatus.ServerInformation;
 import com.google.gerrit.extensions.webui.WebUiPlugin;
 import com.google.gerrit.index.IndexCollection;
 import com.google.gerrit.metrics.MetricMaker;
+import com.google.gerrit.server.util.GuiceUtils;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.server.replication.modules.ReplicatedCoordinatorModule;
 import com.google.gerrit.server.util.PluginRequestContext;
@@ -500,11 +501,6 @@ public class PluginGuiceEnvironment {
     return src.findBindingsByType(type);
   }
 
-  /* Check if the injector can get an instance of the ReplicatedCoordinatorModule*/
-  private boolean hasReplicationModule(final Injector injector){
-    return injector.getInstance(ReplicatedCoordinatorModule.class) != null;
-  }
-
   // Filter out types used in DynamicItem when copying bindings to plugins
   // This avoids Guice creation errors when a plugin tries to bind its own implementation
   // of a type that gerrit core already implemented.
@@ -564,7 +560,7 @@ public class PluginGuiceEnvironment {
            * filtering out this required class binding and also to stop it from converting it to a
            * Provided binding. This will make this class available to all the plugins.*/
           if (e.getKey().toString().contains(ReplicatedEventsCoordinator.class.getSimpleName())) {
-            if(hasReplicationModule(src)) {
+            if(GuiceUtils.hasModule(src, ReplicatedCoordinatorModule.class)) {
               ReplicatedEventsCoordinator replicatedEventsCoordinatorImpl =
                   src.getInstance(ReplicatedEventsCoordinator.class);
 
