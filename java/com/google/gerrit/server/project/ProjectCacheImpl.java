@@ -120,7 +120,8 @@ public class ProjectCacheImpl implements ProjectCache {
 
   final void attachToReplication() {
     if (Replicator.isReplicationDisabled()) {
-      logger.atInfo().log("Skipping ProjectCache hooking as replication is disabled.");
+      logger.atInfo().log("Skipping ProjectCache hooking of [%s], [%s] as replication is disabled.",
+          CACHE_PROJECTS_BYNAME, CACHE_PROJECTS_BYNAME);
       return;
     }
 
