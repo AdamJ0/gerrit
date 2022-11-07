@@ -32,8 +32,8 @@ import static com.google.gerrit.common.data.GlobalCapability.VIEW_CACHES;
 import static com.google.gerrit.sshd.CommandMetaData.Mode.MASTER_OR_SLAVE;
 
 import com.google.common.base.Strings;
+import com.google.gerrit.server.replication.ReplicatorMetrics;
 import com.google.gerrit.server.util.time.TimeUtil;
-import com.google.gerrit.server.replication.ReplicatedCacheManager;
 import com.google.gerrit.common.Version;
 import com.google.gerrit.extensions.annotations.RequiresAnyCapability;
 import com.google.gerrit.extensions.events.LifecycleListener;
@@ -242,9 +242,9 @@ final class ShowCaches extends SshCommand {
         Strings.nullToEmpty(cache.averageGet),
         formatAsPercent(cache.hitRatio.mem),
         formatAsPercent(cache.hitRatio.disk),
-        ReplicatedCacheManager.getEvictionsSent().count(cache.name),
-        ReplicatedCacheManager.getEvictionsPerformed().count(cache.name),
-        ReplicatedCacheManager.getReloadsPerformed().count(cache.name)
+        ReplicatorMetrics.getEvictionsSent().count(cache.name),
+        ReplicatorMetrics.getEvictionsPerformed().count(cache.name),
+        ReplicatorMetrics.getReloadsPerformed().count(cache.name)
       ));
   }
 

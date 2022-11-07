@@ -38,7 +38,7 @@ import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.reviewdb.client.RefNames;
 import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
 import com.google.gerrit.server.git.GitRepositoryManager;
-import com.google.gerrit.server.replication.Replicator;
+import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gwtorm.server.OrmException;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -49,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+import com.google.inject.Inject;
 import com.wandisco.gerrit.gitms.shared.api.exceptions.GitUpdateException;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.lib.ObjectId;
@@ -103,6 +104,7 @@ public class RepoSequence {
 
   private static Retryer<RefUpdate.Result> RETRYER = retryerBuilder().build();
 
+  private final ReplicatedConfiguration replicatedConfiguration;
   private final GitRepositoryManager repoManager;
   private final GitReferenceUpdated gitRefUpdated;
   private final Project.NameKey projectName;
@@ -123,6 +125,7 @@ public class RepoSequence {
   @VisibleForTesting int acquireCount;
 
   public RepoSequence(
+      ReplicatedConfiguration replicatedConfiguration,
       GitRepositoryManager repoManager,
       GitReferenceUpdated gitRefUpdated,
       Project.NameKey projectName,
@@ -130,6 +133,7 @@ public class RepoSequence {
       Seed seed,
       int batchSize) {
     this(
+        replicatedConfiguration,
         repoManager,
         gitRefUpdated,
         projectName,
@@ -142,6 +146,7 @@ public class RepoSequence {
   }
 
   public RepoSequence(
+      ReplicatedConfiguration replicatedConfiguration,
       GitRepositoryManager repoManager,
       GitReferenceUpdated gitRefUpdated,
       Project.NameKey projectName,
@@ -150,6 +155,7 @@ public class RepoSequence {
       int batchSize,
       int floor) {
     this(
+        replicatedConfiguration,
         repoManager,
         gitRefUpdated,
         projectName,
@@ -162,7 +168,9 @@ public class RepoSequence {
   }
 
   @VisibleForTesting
+  @Inject
   public RepoSequence(
+      ReplicatedConfiguration replicatedConfiguration,
       GitRepositoryManager repoManager,
       GitReferenceUpdated gitRefUpdated,
       Project.NameKey projectName,
@@ -171,10 +179,11 @@ public class RepoSequence {
       int batchSize,
       Runnable afterReadRef,
       Retryer<RefUpdate.Result> retryer) {
-    this(repoManager, gitRefUpdated, projectName, name, seed, batchSize, afterReadRef, retryer, 0);
+    this(replicatedConfiguration, repoManager, gitRefUpdated, projectName, name, seed, batchSize, afterReadRef, retryer, 0);
   }
 
   RepoSequence(
+      ReplicatedConfiguration replicatedConfiguration,
       GitRepositoryManager repoManager,
       GitReferenceUpdated gitRefUpdated,
       Project.NameKey projectName,
@@ -184,6 +193,7 @@ public class RepoSequence {
       Runnable afterReadRef,
       Retryer<RefUpdate.Result> retryer,
       int floor) {
+    this.replicatedConfiguration = requireNonNull(replicatedConfiguration, "replicatedConfiguration");
     this.repoManager = requireNonNull(repoManager, "repoManager");
     this.gitRefUpdated = requireNonNull(gitRefUpdated, "gitRefUpdated");
     this.projectName = requireNonNull(projectName, "projectName");
@@ -206,6 +216,7 @@ public class RepoSequence {
 
     counterLock = new ReentrantLock(true);
   }
+
 
   public int next() throws OrmException {
     counterLock.lock();
@@ -419,16 +430,20 @@ public class RepoSequence {
    * Gerrit this will just be the sequence number, but for replicated flow make a tuple incorporating node-id so that
    * the blob sent to GitMS will hash differently. This will cause GitMS to differentiate sequence numbers coming from
    * different nodes.
+   *
+   * NOTE: Do not to attempt to switch between replication on or off once installed without manually fixing
+   *  the sequence information.
    */
-  private static String encodeSequenceString(int val) {
+  private String encodeSequenceString(int val) {
+
     // If replication is disabled, just store the sequence number directly as we don't need to disambiguate the blobs
     // by node-id.
-    if (Replicator.isReplicationDisabled()) {
+    if (!replicatedConfiguration.isReplicationEnabled()) {
       return Integer.toString(val);
     }
 
     // The format of the tuple in the replicated scenario will be NodeId:Sequence#.
-    final String nodeId = requireNonNull(Replicator.getInstance()).getThisNodeIdentity();
+    final String nodeId = requireNonNull(replicatedConfiguration.getThisNodeIdentity());
     return String.format("%s%s%d", nodeId, SEQUENCE_TUPLE_DELIMITER, val);
   }
 

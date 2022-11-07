@@ -41,9 +41,7 @@ import com.google.gerrit.server.permissions.PermissionBackendException;
 import com.google.gerrit.server.permissions.ProjectPermission;
 import com.google.gerrit.server.project.ProjectCache;
 import com.google.gerrit.server.project.ProjectState;
-import com.google.gerrit.server.replication.ReplicatedCacheManager;
-import com.google.gerrit.server.replication.ReplicatedProjectManager;
-import com.google.gerrit.server.replication.Replicator;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.server.util.time.TimeUtil;
 import com.google.inject.AbstractModule;
 import com.google.inject.Inject;
@@ -87,10 +85,9 @@ import org.eclipse.jgit.transport.resolver.UploadPackFactory;
 /** Serves Git repositories over HTTP. */
 @Singleton
 public class GitOverHttpServlet extends GitServlet {
+
   private static final long serialVersionUID = 1L;
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
-
-
   private static final String ATT_STATE = ProjectState.class.getName();
   private static final String ATT_ARC = AsyncReceiveCommits.class.getName();
   private static final String ID_CACHE = "adv_bases";
@@ -384,6 +381,7 @@ public class GitOverHttpServlet extends GitServlet {
 
   static class ReceiveFilter implements Filter {
     private final Cache<AdvertisedObjectsCacheKey, Set<ObjectId>> cache;
+    private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
     private final PermissionBackend permissionBackend;
     private final Provider<CurrentUser> userProvider;
     private final GroupAuditService groupAuditService;
@@ -395,22 +393,25 @@ public class GitOverHttpServlet extends GitServlet {
         PermissionBackend permissionBackend,
         Provider<CurrentUser> userProvider,
         Provider<WebSession> sessionProvider,
-        GroupAuditService groupAuditService) {
+        GroupAuditService groupAuditService,
+        ReplicatedEventsCoordinator replicatedEventsCoordinator ) {
       this.cache = cache;
       this.permissionBackend = permissionBackend;
       this.userProvider = userProvider;
       this.sessionProvider = sessionProvider;
       this.groupAuditService = groupAuditService;
+      this.replicatedEventsCoordinator = replicatedEventsCoordinator;
+
       attachToReplication();
     }
 
+
     final void attachToReplication() {
-      if (Replicator.isReplicationDisabled()) {
+      if (! replicatedEventsCoordinator.isReplicationEnabled()) {
         logger.atInfo().log("Skipping hooking of [%s] as replication is disabled.", ID_CACHE);
         return;
       }
-
-      ReplicatedCacheManager.watchCache(ID_CACHE, this.cache);
+      replicatedEventsCoordinator.getReplicatedIncomingCacheEventProcessor().watchCache(ID_CACHE, this.cache);
     }
 
     /**
@@ -420,8 +421,8 @@ public class GitOverHttpServlet extends GitServlet {
      * @param value : Value to evict from the cache.
      */
     private void replicateEvictionFromCache(String name, AdvertisedObjectsCacheKey value) {
-      if(!Replicator.isReplicationDisabled()) {
-        ReplicatedCacheManager.replicateEvictionFromCache(name, value);
+      if (replicatedEventsCoordinator.isReplicationEnabled()) {
+        replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value);
       }
     }
 

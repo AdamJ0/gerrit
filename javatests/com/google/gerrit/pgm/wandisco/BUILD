@@ -10,6 +10,7 @@ junit_tests(
         "//java/com/google/gerrit/reviewdb:server",
         "//java/com/google/gerrit/server",
         "//java/com/google/gerrit/testing:gerrit-test-util",
+        "//javatests/com/google/gerrit/server:server_tests",
         "//lib/powermock:powermock-core",
         "@guava-retrying//jar",
         "@gwtorm-client//jar",

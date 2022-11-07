@@ -1,13 +1,18 @@
 package com.google.gerrit.server.replication;
 
-import com.google.common.base.Supplier;
+import com.google.gerrit.lifecycle.LifecycleModule;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.server.events.Event;
-import com.google.gerrit.server.events.EventDeserializer;
-import com.google.gerrit.server.events.SupplierDeserializer;
-import com.google.gerrit.server.events.SupplierSerializer;
+import com.google.gerrit.server.replication.customevents.AccountIndexEventBase;
+import com.google.gerrit.server.replication.customevents.CacheKeyWrapper;
+import com.google.gerrit.server.replication.customevents.DeleteProjectChangeEvent;
+import com.google.gerrit.server.replication.customevents.IndexToReplicate;
+import com.google.gerrit.server.replication.customevents.ProjectIndexEvent;
+import com.google.gerrit.server.replication.customevents.ProjectInfoWrapper;
+import com.google.gerrit.server.replication.modules.ReplicationModule;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import com.google.inject.Inject;
+import com.google.inject.name.Named;
 import com.wandisco.gerrit.gitms.shared.events.DeleteProjectMessageEvent;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
 
@@ -22,15 +27,35 @@ import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.PR
 
 public class GerritEventFactory {
 
+  /**
+   * GerritEventFactory is a utility class made up of static methods. In order to dependency inject these
+   * we must use requestStaticInjection().
+   * @see <a href="https://google.github.io/guice/api-docs/4.2/javadoc/index.html?com/google/inject/spi/StaticInjectionRequest.html">
+   *   google.github.io</a>
+   */
+  public static class Module extends LifecycleModule {
+    @Override
+    protected void configure() {
+      requestStaticInjection(GerritEventFactory.class);
+    }
+  }
+
+  /**
+   * Used only by integration / unit testing to setup the Injected fields that wont be initialized e.g. GSon.
+   */
+  public static void setupEventWrapper(){
+    if ( gson == null ) {
+      gson = new ReplicationModule().provideGson();
+    }
+  }
+
   // Gson performs the serialization/deserialization of objects using its inbuilt adapters.
-  // Java objects can be serialised to JSON strings and deserialised back using JsonSerializer
+  // Java objects can be serialised to JSON strings and deserialized back using JsonSerializer
   // and the JsonDeserializer respectively. SupplierSerializer/SupplierDeserializer and EventDeserializer
   // extend these JsonSerializer/JsonDeserializer
-  private static final Gson gson = new GsonBuilder()
-      .registerTypeAdapter(Supplier.class, new SupplierSerializer())
-      .registerTypeAdapter(Event.class, new EventDeserializer())
-      .registerTypeAdapter(Supplier.class, new SupplierDeserializer())
-      .create();
+  @Inject
+  @Named("wdGson")
+  private static Gson gson;
 
   public static EventWrapper createReplicatedChangeEvent(Event changeEvent,
                                                          ReplicatedChangeEventInfo info) throws IOException {
@@ -63,6 +88,14 @@ public class GerritEventFactory {
                             CACHE_EVENT);
   }
 
+  public static EventWrapper createReplicatedCacheEvent(String projectName, CacheKeyWrapper cacheNameAndKey) throws IOException {
+    String eventString = gson.toJson(cacheNameAndKey);
+    return new EventWrapper(eventString,
+        cacheNameAndKey.getClass().getName(),
+        projectName,
+        CACHE_EVENT);
+  }
+
   public static EventWrapper createReplicatedProjectsIndexEvent(String projectName,
                                                                 ProjectIndexEvent indexEvent) throws IOException {
     final String eventString = gson.toJson(indexEvent);
@@ -72,15 +105,8 @@ public class GerritEventFactory {
                             PROJECTS_INDEX_EVENT);
   }
 
-  public static EventWrapper createReplicatedCacheEvent(String projectName, CacheKeyWrapper cacheNameAndKey) throws IOException {
-    String eventString = gson.toJson(cacheNameAndKey);
-    return new EventWrapper(eventString,
-                            cacheNameAndKey.getClass().getName(),
-                            projectName,
-                            CACHE_EVENT);
-  }
 
-  public static EventWrapper createReplicatedIndexEvent(ReplicatedIndexEventsWorker.IndexToReplicate indexToReplicate) throws IOException {
+  public static EventWrapper createReplicatedIndexEvent(IndexToReplicate indexToReplicate) throws IOException {
     String eventString = gson.toJson(indexToReplicate);
     return new EventWrapper(eventString,
                             indexToReplicate.getClass().getName(),

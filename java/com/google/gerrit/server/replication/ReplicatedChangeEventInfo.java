@@ -1,37 +1,27 @@
-/********************************************************************************
- * Copyright (c) 2014-2018 WANdisco
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Apache License, Version 2.0
- *
- ********************************************************************************/
-
 package com.google.gerrit.server.replication;
 
 import com.google.gerrit.reviewdb.client.Branch;
 import com.google.gerrit.server.data.ChangeAttribute;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-/**
- * Structure to represent the change event information which is transmitted when replicating Change Events.
- *
- */
 public class ReplicatedChangeEventInfo {
-
+  private static final Logger log = LoggerFactory.getLogger(ReplicatedChangeEventInfo.class);
   private ChangeAttribute changeAttr = null;
   private Branch.NameKey branchName = null;
   private String projectName = null;
   private boolean supported = false;
 
+
   public void setChangeAttribute(ChangeAttribute changeAttr) {
-    this.changeAttr = changeAttr;
-    if (changeAttr != null) {
-      projectName = changeAttr.project;
-      supported = true;
+    if(changeAttr == null){
+      log.error("Cannot set ChangeAttribute. ChangeAttribute was null");
+      return;
     }
+    this.changeAttr = changeAttr;
+    this.projectName = changeAttr.project;
+    supported = true;
+
   }
 
   public void setProjectName(String projectName) {
@@ -71,4 +61,3 @@ public class ReplicatedChangeEventInfo {
 
   }
 }
-

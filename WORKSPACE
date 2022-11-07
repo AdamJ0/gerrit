@@ -437,6 +437,12 @@ maven_jar(
     sha1 = "959a0c62f9a5c2309e0ad0b0589c74d69e101241",
 )
 
+maven_jar(
+    name = "equalsverifier",
+    artifact = "nl.jqno.equalsverifier:equalsverifier:1.3.1",
+    sha1 = "3c8d6837afa9de0290927582cdd904d8d355c66a",
+)
+
 FLEXMARK_VERS = "0.34.18"
 
 maven_jar(
@@ -934,6 +940,12 @@ maven_jar(
     name = "easymock",
     artifact = "org.easymock:easymock:3.1",
     sha1 = "3e127311a86fc2e8f550ef8ee4abe094bbcf7e7e",
+)
+
+maven_jar(
+    name = "equalsverifier",
+    artifact = "nl.jqno.equalsverifier:equalsverifier:1.3.1",
+    sha1 = "3c8d6837afa9de0290927582cdd904d8d355c66a",
 )
 
 # External plugin dep for its-jira tests.

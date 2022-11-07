@@ -33,14 +33,13 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.account.AccountSshKey;
-import com.google.gerrit.server.replication.ReplicatedCacheManager;
 import com.google.gerrit.server.account.VersionedAuthorizedKeys;
 import com.google.gerrit.server.account.externalids.ExternalId;
 import com.google.gerrit.server.account.externalids.ExternalIds;
 import com.google.gerrit.server.cache.CacheModule;
 import com.google.gerrit.server.logging.TraceContext;
 import com.google.gerrit.server.logging.TraceContext.TraceTimer;
-import com.google.gerrit.server.replication.Replicator;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.server.ssh.SshKeyCache;
 import com.google.gerrit.server.ssh.SshKeyCreator;
 import com.google.inject.Inject;
@@ -90,22 +89,34 @@ public class SshKeyCacheImpl implements SshKeyCache {
   }
 
   private final LoadingCache<String, Iterable<SshKeyCacheEntry>> cache;
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
   @Inject
-  SshKeyCacheImpl(@Named(CACHE_NAME) LoadingCache<String, Iterable<SshKeyCacheEntry>> cache) {
+  SshKeyCacheImpl(@Named(CACHE_NAME) LoadingCache<String, Iterable<SshKeyCacheEntry>> cache,
+                  ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     this.cache = cache;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
     attachToReplication();
   }
 
-  /**
-   * If replication is enabled, attach the active caches for replicating the changes to other nodes.
-   */
   final void attachToReplication() {
-    if (Replicator.isReplicationDisabled()) {
+    if( !replicatedEventsCoordinator.isReplicationEnabled() ){
+      logger.atInfo().log("Replication is disabled - not hooking in SectionSortCache listeners.");
       return;
     }
+    replicatedEventsCoordinator.getReplicatedIncomingCacheEventProcessor().watchCache(CACHE_NAME, this.cache);
+  }
 
-    ReplicatedCacheManager.watchCache(CACHE_NAME, this.cache);
+  /**
+   * Asks the replicated coordinator for the instance of the ReplicatedOutgoingCacheEventsFeed and calls
+   * replicateEvictionFromCache on it.
+   * @param name : Name of the cache to evict from.
+   * @param value : Value to evict from the cache.
+   */
+  private void replicateEvictionFromCache(String name, Object value) {
+    if(replicatedEventsCoordinator.isReplicationEnabled()) {
+      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value);
+    }
   }
 
   Iterable<SshKeyCacheEntry> get(String username) {
@@ -122,7 +133,7 @@ public class SshKeyCacheImpl implements SshKeyCache {
     if (username != null) {
       logger.atFine().log("Evict SSH key for username %s", username);
       cache.invalidate(username);
-      ReplicatedCacheManager.replicateEvictionFromCache(CACHE_NAME, username);
+      replicateEvictionFromCache(CACHE_NAME,username);
     }
   }
 
