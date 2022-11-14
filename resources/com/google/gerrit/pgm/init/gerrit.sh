@@ -100,11 +100,11 @@ get_config() {
 #gerrit.war file before attempting to start it
 check_is_replicated_war() {
   version=$(check_war_version $1)
-  if [[ $version =~ "RP" ]]; then
-      return 0
-  else
-      return 1
-  fi
+  case "$version" in
+  *RP*) return 0;;
+  esac
+
+  return 1;
 }
 
 #Return the war version.
