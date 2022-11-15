@@ -1,8 +1,7 @@
 package com.google.gerrit.server.replication;
 
 import com.google.common.base.Strings;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.google.common.flogger.FluentLogger;
 
 import java.io.File;
 import java.io.FileFilter;
@@ -15,7 +14,7 @@ import java.io.FileFilter;
 public class ReplicatedEventsFileFilter implements FileFilter {
 
   private static final String allowedExtension=".json";
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedEventsFileFilter.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
   private String firstPart;
 
   public ReplicatedEventsFileFilter(String firstPart){
@@ -46,7 +45,7 @@ public class ReplicatedEventsFileFilter implements FileFilter {
     // Event files found in directory not beginning events_ ???
     // There used to be old persisted_ events which we no longer allow here, they only
     // exist in the failed directory - remove them!!
-    log.error("File \"{}\" is not allowed here, remove it please ",pathname);
+    logger.atSevere().log("File \"%s\" is not allowed here, remove it please ",pathname);
     return false;
   }
 

@@ -1,5 +1,6 @@
 package com.google.gerrit.server.replication.processors;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.server.project.NoSuchChangeException;
 import com.google.gerrit.server.replication.ReplicatedChangeTimeChecker;
@@ -18,8 +19,6 @@ import com.google.inject.Provider;
 import com.google.inject.Singleton;
 import com.google.inject.util.Providers;
 import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.sql.Timestamp;
@@ -37,7 +36,7 @@ import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.IN
 @Singleton
 public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEventProcessor {
 
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedIncomingIndexEventProcessor.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   /**
    * We only create this class from the replicatedEventsCoordinator.
@@ -51,7 +50,7 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
    */
   public ReplicatedIncomingIndexEventProcessor(ReplicatedEventsCoordinator eventsCoordinator) {
     super(INDEX_EVENT, eventsCoordinator);
-    log.info("Creating main processor for event type: {}", eventType);
+    logger.atInfo().log("Creating main processor for event type: %s", eventType);
     subscribeEvent(this);
     SingletonEnforcement.registerClass(ReplicatedIncomingIndexEventProcessor.class);
   }
@@ -79,9 +78,9 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
 
     IndexToReplicateComparable originalEvent =
         new IndexToReplicateComparable(index, replicatedEventsCoordinator.getReplicatedConfiguration().getThisNodeIdentity());
-    log.debug("RC Received this event from replication: {}", originalEvent);
+    logger.atFine().log("RC Received this event from replication: %s", originalEvent);
 
-    // Lets do this actual index change now!
+    // Let's do this actual index change now!
     processIndexChangeCollection(originalEvent);
   }
 
@@ -140,7 +139,7 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
             } catch (IOException e) {
               // we don't record deletions as failures, as we could of deleted on a first attempt and a later retry
               // might throw as its already been deleted?
-              log.error("RC Error while trying to delete change index {}", i.indexNumber, e);
+              logger.atSevere().withCause(e).log("RC Error while trying to delete change index %s", i.indexNumber);
             }
             iter.remove();
           }
@@ -148,12 +147,12 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
 
         if ( mapOfChanges.isEmpty() ){
           // all changes were deletes - lets exit now.
-          log.debug("RC All Events being processed where deletions - nothing more to do.");
+          logger.atFine().log("RC All Events being processed where deletions - nothing more to do.");
           return;
         }
 
         // We cannot be requesting index changes for items that have been deleted - lets
-        log.debug("RC Going to index {} changes...", mapOfChanges.size());
+        logger.atFine().log("RC Going to index %s changes...", mapOfChanges.size());
 
         // fetch changes from db
         long startTime = System.currentTimeMillis();
@@ -170,15 +169,15 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
           // add all requested ids, then remove the founds ones.
           Collection<Integer> listOfMissingIds = buildListOfMissingIds(listOfRequestedIds, listOfFoundIds);
 
-          // Lets check before failing, do any of the missing Ids have a safe to ignore missing flag, if so we can
+          // Let's check before failing, do any of the missing Ids have a safe to ignore missing flag, if so we can
           // ignore this safely without reporting it as a failure / backoff event.
           if ( areAllMissingItemsSafeToIgnore(mapOfChanges, listOfMissingIds) ){
             // we have found all missing items are safe to be ignored - lets exit.
-            log.info("Safe to ignore already deleted INDEX_EVENT(s): {}", listOfMissingIds);
+            logger.atInfo().log("Safe to ignore already deleted INDEX_EVENT(s): %s", listOfMissingIds);
             return;
           }
 
-          log.warn("Number of matching changes found on the DB : {} doesn't match requested num changes: {}",
+          logger.atWarning().log("Number of matching changes found on the DB : %s doesn't match requested num changes: %s",
               numMatchingDbChanges, mapOfChanges.size());
 
           // now we have the full picture - of requested, found, and missing lets raise exception
@@ -191,11 +190,11 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
 
         long endTime = System.currentTimeMillis();
         long duration = (endTime - startTime);
-        log.debug("RC Time taken to fetch changes {}ms", duration);
+        logger.atFine().log("RC Time taken to fetch changes %sms", duration);
 
         int totalDone = 0;
         int thisNodeTimeZoneOffset = IndexToReplicate.getRawOffset(System.currentTimeMillis());
-        log.debug("thisNodeTimeZoneOffset={}", thisNodeTimeZoneOffset);
+        logger.atFine().log("thisNodeTimeZoneOffset=%s", thisNodeTimeZoneOffset);
         // compare changes from db with the changes landed from the index change replication
 
         //  N.B future enhancement. indexCollectionOfChanges will only ever receive a mapOfChanges of size
@@ -218,23 +217,23 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
             // when we come alive.  but if it fails - put the entire set into failed directory !!
             try {
               replicatedEventsCoordinator.getChangeIndexer().indexNoRepl(db, changeOnDb.getProject(), changeOnDb.getId());
-              log.debug("RC Change {} INDEXED!", changeOnDb.getChangeId());
+              logger.atFine().log("RC Change %s INDEXED!", changeOnDb.getChangeId());
               mapOfChanges.remove(changeOnDb.getId());
               totalDone++;
             } catch (Exception e) { // could be org.eclipse.jgit.errors.MissingObjectException
-              log.warn(String.format("Got exception '%s' while trying to reindex change, will backoff this event file to retry later.", e.getMessage()), e);
+              logger.atWarning().withCause(e).log("Got exception '%s' while trying to reindex change, will backoff this event file to retry later.", e.getMessage());
 
               // just before we indicate a failure - if we have a deletion on the same change earlier on, lets
               // ignore this!!
               if (deletedIdsList.contains(changeOnDb.getChangeId())) {
                 // we have a failure but we already deleted this id before now... ignore it
-                log.warn("Ignoring change failure: {} - as we have already deleted this change before now.", changeOnDb.getChangeId());
+                logger.atWarning().log("Ignoring change failure: %s - as we have already deleted this change before now.", changeOnDb.getChangeId());
                 continue;
               }
 
               if (e.getCause() instanceof org.eclipse.jgit.errors.MissingObjectException) {
                 // retry this 30secs or so from now - but only this event, not the entire group!
-                log.warn("Specific Change JGitMissingObject error noticed {} backoff this events file to retry later.", indexToReplicate.indexNumber);
+                logger.atWarning().log("Specific Change JGitMissingObject error noticed %s backoff this events file to retry later.", indexToReplicate.indexNumber);
               }
 
               // protect against edge case - low DB resolution where we could have A B C in same second,
@@ -242,34 +241,34 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
               else if (changeTimeChecker.isTimeStampEqual()) {
                 // Special case if the DB is equal in seconds the change is there and it should have been a no-op.
                 // This should have passed, is there somehow a way that an event change row can be updated without
-                // updating the lastUpdatedOn time held for that row by the DB?? Lets treat as if we didn't get the row
-                // at all, so lets delete all working events before this one, and let it replay later.
-                log.warn("Specific Change error noticed {} with matching lastUpdatedOn time - pushed back in the queue", indexToReplicate.indexNumber);
+                // updating the lastUpdatedOn time held for that row by the DB?? Let's treat as if we didn't get the row
+                // at all, so let's delete all working events before this one, and let it replay later.
+                logger.atWarning().log("Specific Change error noticed %s with matching lastUpdatedOn time - pushed back in the queue", indexToReplicate.indexNumber);
 
                 throw new ReplicatedEventsMissingChangeInformationException("DB equals same timestamp retry failure process events group.");
               }
 
               final String err = String.format("RC Error while trying to reindex change %s, failed events will be retried later.", changeOnDb.getChangeId());
-              log.error(err, e);
+              logger.atSevere().withCause(e).log(err);
               throw new ReplicatedEventsTransientException(err);
             }
           } catch (ReplicatedEventsDBNotUpToDateException | ReplicatedEventsMissingChangeInformationException e) {
             // this is a specific exception that we do not wish to catch and hide - we want to bubble this up
-            // and ensure it is caught at higher level.. its stop the processing now, but also makes the retry not
-            // move this event file into failed. It will increase the failure backoff period, but wont finally go over the max
-            // retries forcing a move to delete until the DB is up to date and its tried once more.
+            // and ensure it is caught at higher level. its stop the processing now, but also makes the retry not
+            // move this event file into failed. It will increase the failure backoff period, but won't finally go over the max
+            // retries forcing a move to delete until the DB is up-to-date and its tried once more.
             throw e;
           } catch (Exception e) {
             final String err = String.format("RC Error while trying to reindex change %s, failed events will be retried later.", changeOnDb.getChangeId());
-            log.error(err, e);
+            logger.atSevere().withCause(e).log(err);
             throw new ReplicatedEventsTransientException(err);
           }
         }
 
-        log.debug(String.format("RC Finished indexing %d changes... (%d).", mapOfChanges.size(), totalDone));
+        logger.atFine().log("RC Finished indexing %d changes... ( %d ).", mapOfChanges.size(), totalDone);
       }
     } catch (OrmException e) {
-      log.error("RC Error while trying to reindex change, unable to open the ReviewDB instance.", e);
+      logger.atSevere().withCause(e).log("RC Error while trying to reindex change, unable to open the ReviewDB instance.");
       throw new ReplicatedEventsDBNotUpToDateException("RC Unable to open ReviewDB instance.");
     }
   }
@@ -334,7 +333,7 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
     Timestamp normalisedChangeTimestamp = changeTimeChecker.getNormalisedChangeTimestamp();
     Timestamp normalisedIndexToReplicate = changeTimeChecker.getNormalisedIndexToReplicate();
 
-    log.debug("Comparing changeTimestamp={} to indexToReplicate={}. ChangedIndexedMoreThanXMinuteAgo is {}",
+    logger.atFine().log("Comparing changeTimestamp=%s to indexToReplicate=%s. ChangedIndexedMoreThanXMinuteAgo is %s",
         normalisedChangeTimestamp, normalisedIndexToReplicate, changeIndexedMoreThanXMinutesAgo);
 
     // db not up to date - throw now to requeue the entire block of events
@@ -349,10 +348,10 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
     //                if indicator=true throw exception at end of the full changes list so entire file
     //                is moved into failed directory ( same name for later reprocessing? )
 
-    // dont reindex any events in this file - if DB is not up to date.
+    // don't reindex any events in this file - if DB is not up-to-date.
     if (changeTimeChecker.isTimeStampBefore()) {
-      log.info("Change {}, could not be processed yet, as the DB is not yet up to date." +
-              "Push this entire group of changes back into the queue [db={}, index={}]",
+      logger.atInfo().log("Change %s, could not be processed yet, as the DB is not yet up to date." +
+              "Push this entire group of changes back into the queue [db=%s, index=%s]",
           indexToReplicate.indexNumber, changeOnDb.getLastUpdatedOn(), indexToReplicate.lastUpdatedOn);
       // Fail the entire group of events in this entire file
       throw new ReplicatedEventsDBNotUpToDateException("DB not up to date to deal with index: " + indexToReplicate.indexNumber);
@@ -382,7 +381,7 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
       } catch (NoSuchChangeException e) {
         //This is called on deletions so can be expected to throw.
         String errMsg = String.format("change was not found %s when trying to get change index", entry.getValue().indexNumber);
-        log.info(errMsg);
+        logger.atSevere().withCause(e).log(errMsg);
         throw new ReplicatedEventsMissingChangeInformationException(errMsg, e);
       }
     }
@@ -438,7 +437,7 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
    */
   public void deleteChange(int indexNumber) throws IOException {
     replicatedEventsCoordinator.getChangeIndexer().delete(new Change.Id(indexNumber));
-    log.info(String.format("Deleted change: %s", indexNumber));
+    logger.atInfo().log("Deleted change: %s", indexNumber);
 
   }
 
@@ -451,8 +450,7 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
    */
   public void deleteChange(Change.Id id) throws IOException {
     replicatedEventsCoordinator.getChangeIndexer().delete(id);
-    log.info(String.format("Deleted change: %s" , id.get()));
-
+    logger.atInfo().log("Deleted change: %s" , id.get());
   }
 
 }

@@ -1,5 +1,6 @@
 package com.google.gerrit.server.replication.processors;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.server.notedb.ChangeNotes;
 import com.google.gerrit.server.permissions.PermissionBackendException;
@@ -18,14 +19,12 @@ import com.google.gerrit.server.events.RefEvent;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Singleton;
 import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.GERRIT_EVENT;
 
 @Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedIncomingServerEventProcessor extends AbstractReplicatedEventProcessor {
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedIncomingServerEventProcessor.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   private EventBroker eventBroker;
 
@@ -41,7 +40,7 @@ public class ReplicatedIncomingServerEventProcessor extends AbstractReplicatedEv
    */
   public ReplicatedIncomingServerEventProcessor(ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     super(GERRIT_EVENT, replicatedEventsCoordinator);
-    log.info("Creating main processor for event type: {}", eventType);
+    logger.atInfo().log("Creating main processor for event type: %s", eventType);
     subscribeEvent(this);
     SingletonEnforcement.registerClass(ReplicatedIncomingServerEventProcessor.class);
   }
@@ -111,11 +110,11 @@ public class ReplicatedIncomingServerEventProcessor extends AbstractReplicatedEv
       return;
     }
 
-    log.debug("RE going to fire event... {} ", replicatedChangeEventInfo);
+    logger.atFine().log("RE going to fire event... %s ", replicatedChangeEventInfo);
 
     try (ReviewDb db = replicatedEventsCoordinator.getSchemaFactory().open()) {
       if (replicatedChangeEventInfo.getChangeAttr() != null) {
-        log.debug("RE using changeAttr: {}...", replicatedChangeEventInfo.getChangeAttr());
+        logger.atFine().log("RE using changeAttr: %s...", replicatedChangeEventInfo.getChangeAttr());
 
         ChangeNotes changeNotes = replicatedEventsCoordinator.getChangeNotesFactory()
             .createWithAutoRebuildingDisabled(db,
@@ -129,25 +128,25 @@ public class ReplicatedIncomingServerEventProcessor extends AbstractReplicatedEv
         // have a stream event coming in after a deletion - either way we can't compare timestamps so lets just
         // indicate missing change, and it will delete all working events before this one and backoff.
         if (change == null) {
-          log.warn("Change {} was not present in the DB", replicatedChangeEventInfo.getChangeAttr().number);
+          logger.atWarning().log("Change %s was not present in the DB", replicatedChangeEventInfo.getChangeAttr().number);
           throw new ReplicatedEventsMissingChangeInformationException(
               String.format("Change %s was not present in the DB. It was either deleted or will be added " +
                   "by a future event", replicatedChangeEventInfo.getChangeAttr().number));
         }
 
-        log.debug("RE got change from DB: {}", change);
+        logger.atFine().log("RE got change from DB: %s", change);
         getEventBroker().postEvent(change, (ChangeEvent) newEvent);
       } else if (replicatedChangeEventInfo.getBranchName() != null) {
-        log.debug("RE using branchName: {}", replicatedChangeEventInfo.getBranchName());
+        logger.atFine().log("RE using branchName: %s", replicatedChangeEventInfo.getBranchName());
         getEventBroker().postEvent(replicatedChangeEventInfo.getBranchName(), (RefEvent) newEvent);
       } else if (newEvent instanceof ProjectCreatedEvent) {
         getEventBroker().postEvent(((ProjectCreatedEvent) newEvent));
       } else {
-        log.error("RE Internal error, it's *supported*, but refs is null", new Exception("refs is null for supported event"));
+        logger.atSevere().withCause(new Exception("refs is null for supported event")).log("RE Internal error, it's *supported*, but refs is null");
         throw new ReplicatedEventsUnknownTypeException("RE Internal error, it's *supported*, but refs is null");
       }
     } catch (OrmException | PermissionBackendException e) {
-      log.error("RE While trying to publish a replicated event", e);
+      logger.atSevere().withCause(e).log("RE While trying to publish a replicated event");
 
       // Something happened requesting this event information - lets treat at a missing case, and it will retry later.
       throw new ReplicatedEventsMissingChangeInformationException(

@@ -1,5 +1,6 @@
 package com.google.gerrit.server.replication.feeds;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.replication.customevents.DeleteProjectChangeEvent;
 import com.google.gerrit.server.replication.GerritEventFactory;
 import com.google.gerrit.server.replication.customevents.ProjectInfoWrapper;
@@ -9,8 +10,6 @@ import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.inject.Singleton;
 import com.wandisco.gerrit.gitms.shared.events.DeleteProjectMessageEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.List;
@@ -19,9 +18,10 @@ import java.util.Objects;
 import static com.wandisco.gerrit.gitms.shared.events.DeleteProjectMessageEvent.DeleteMessage.DELETE_PROJECT_FROM_DISK;
 import static com.wandisco.gerrit.gitms.shared.events.DeleteProjectMessageEvent.DeleteMessage.DO_NOT_DELETE_PROJECT_FROM_DISK;
 
-@Singleton //Not guice bound but makes it clear that its a singleton
+@Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedOutgoingProjectEventsFeed extends ReplicatedOutgoingEventsFeedCommon {
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedOutgoingProjectEventsFeed.class);
+
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   /**
    * We only create this class from the replicatedEventsCoordinator.
@@ -39,7 +39,7 @@ public class ReplicatedOutgoingProjectEventsFeed extends ReplicatedOutgoingEvent
 
   public void replicateProjectDeletion(String projectName, boolean preserve, String taskUuid) throws IOException {
     ProjectInfoWrapper projectInfoWrapper = new ProjectInfoWrapper(projectName, preserve, taskUuid, replicatedEventsCoordinator.getThisNodeIdentity());
-    log.info("PROJECT About to call replicated project deletion event: {},{},{}",
+    logger.atInfo().log("PROJECT About to call replicated project deletion event: %s, %s, %s",
         projectName, preserve, taskUuid);
     replicatedEventsCoordinator.queueEventForReplication(GerritEventFactory.createReplicatedDeleteProjectEvent(projectInfoWrapper));
   }
@@ -47,7 +47,7 @@ public class ReplicatedOutgoingProjectEventsFeed extends ReplicatedOutgoingEvent
   public void replicateProjectChangeDeletion(Project project, boolean preserve, List<Change.Id> changesToBeDeleted, String taskUuid) throws IOException {
     DeleteProjectChangeEvent deleteProjectChangeEvent =
         new DeleteProjectChangeEvent(project, preserve, changesToBeDeleted, taskUuid, replicatedEventsCoordinator.getThisNodeIdentity());
-    log.info("PROJECT About to call replicated project change deletion event: {},{},{},{}",
+    logger.atInfo().log("PROJECT About to call replicated project change deletion event: %s, %s, %s, %s",
         project.getName(), preserve, changesToBeDeleted, taskUuid);
     replicatedEventsCoordinator.queueEventForReplication(GerritEventFactory.createReplicatedDeleteProjectChangeEvent(deleteProjectChangeEvent));
   }
@@ -104,7 +104,7 @@ public class ReplicatedOutgoingProjectEventsFeed extends ReplicatedOutgoingEvent
       replicatedEventsCoordinator
           .queueEventForReplication(GerritEventFactory.createReplicatedDeleteProjectMessageEvent(deleteProjectMessageEvent));
     } catch (IOException e) {
-      log.error("Unable to create event wrapper and queue this DeleteProjectMessageEvent.", e);
+      logger.atSevere().withCause(e).log("Unable to create event wrapper and queue this DeleteProjectMessageEvent.");
     }
   }
 }

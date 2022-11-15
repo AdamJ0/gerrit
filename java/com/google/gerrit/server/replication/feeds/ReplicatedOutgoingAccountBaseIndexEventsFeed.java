@@ -1,5 +1,6 @@
 package com.google.gerrit.server.replication.feeds;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.reviewdb.client.AccountGroup;
 import com.google.gerrit.server.replication.GerritEventFactory;
 import com.google.gerrit.server.replication.SingletonEnforcement;
@@ -10,18 +11,15 @@ import com.google.gerrit.server.replication.customevents.AccountIndexEventBase;
 import com.google.gerrit.server.replication.customevents.AccountUserIndexEvent;
 import com.google.inject.Singleton;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.Serializable;
 
-@Singleton //Not guice bound but makes it clear that its a singleton
+@Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedOutgoingAccountBaseIndexEventsFeed extends ReplicatedOutgoingEventsFeedCommon {
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedOutgoingAccountBaseIndexEventsFeed.class);
-
+   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
   /**
-   * We only create this class from the replicatedEventscoordinator.
+   * We only create this class from the replicatedEventsCoordinator.
    * This is a singleton, and it's enforced by our SingletonEnforcement below that if anyone else tries to create
    * this class it will fail.
    * Sorry by adding a getInstance, make this class look much more public than it is,
@@ -51,11 +49,11 @@ public class ReplicatedOutgoingAccountBaseIndexEventsFeed extends ReplicatedOutg
     if (identifier instanceof Account.Id) {
       accountIndexEventBase = new AccountUserIndexEvent((Account.Id) identifier, replicatedEventsCoordinator.getThisNodeIdentity());
       originator = EventWrapper.Originator.ACCOUNT_USER_INDEX_EVENT;
-      log.debug("RC Account User reindex being replicated for Id: {} ", identifier);
+      logger.atFine().log("RC Account User reindex being replicated for Id: %s ", identifier);
     } else if (identifier instanceof AccountGroup.UUID) {
       accountIndexEventBase = new AccountGroupIndexEvent((AccountGroup.UUID) identifier, replicatedEventsCoordinator.getThisNodeIdentity());
       originator = EventWrapper.Originator.ACCOUNT_GROUP_INDEX_EVENT;
-      log.debug("RC Account Group reindex being replicated for UUID: {} ", identifier);
+      logger.atFine().log("RC Account Group reindex being replicated for UUID: %s ", identifier);
     }
 
     replicatedEventsCoordinator.queueEventForReplication(GerritEventFactory.createReplicatedAccountIndexEvent(

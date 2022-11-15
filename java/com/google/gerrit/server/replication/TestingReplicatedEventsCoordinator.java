@@ -34,7 +34,6 @@ import org.eclipse.jgit.errors.ConfigInvalidException;
 
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.REPLICATION_DISABLED;
 

@@ -40,7 +40,7 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
    */
   public ReplicatedIncomingCacheEventProcessor(ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     super(CACHE_EVENT, replicatedEventsCoordinator);
-    logger.atInfo().log("Creating main processor for event type: {}", eventType);
+    logger.atInfo().log("Creating main processor for event type: %s", eventType);
     subscribeEvent(this);
     SingletonEnforcement.registerClass(ReplicatedIncomingCacheEventProcessor.class);
   }
@@ -69,7 +69,7 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
     if (cacheKeyWrapper instanceof CacheObjectCallWrapper) {
       CacheObjectCallWrapper originalObj = (CacheObjectCallWrapper) cacheKeyWrapper;
       // Invokes a particular method on a cache. The CacheObjectCallWrapper carries the method
-      // to be invoked on the cache. At present we make only two replicated cache method calls from ProjectCacheImpl.
+      // to be invoked on the cache. At present, we make only two replicated cache method calls from ProjectCacheImpl.
       applyMethodCallOnCache(originalObj.cacheName, originalObj.key, originalObj.methodName);
       return;
     }
@@ -84,22 +84,22 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
     boolean reloaded = false;
     ReplicatedCacheWrapper wrapper = caches.get(cacheName);
     if (wrapper == null) {
-      logger.atSevere().log("CACHE call could not be made, as cache does not exist. {}", cacheName);
+      logger.atSevere().log("CACHE call could not be made, as cache does not exist. %s", cacheName);
       throw new ReplicatedEventsUnknownTypeException(
           String.format("CACHE call on replicated eviction could not be made, as cache does not exist. %s", cacheName));
     }
 
     if (replicatedEventsCoordinator.isCacheToBeEvicted(cacheName)) {
-      logger.atFine().log("CACHE {} to evict {}...", cacheName, key);
+      logger.atFine().log("CACHE %s to evict %s...", cacheName, key);
       evicted = wrapper.evict(key);
       if (replicatedEventsCoordinator.getReplicatedConfiguration().isCacheToBeReloaded(cacheName)) {
-        logger.atFine().log("CACHE {} to reload key {}...", cacheName, key);
+        logger.atFine().log("CACHE %s to reload key %s...", cacheName, key);
         reloaded = wrapper.reload(key);
       } else {
-        logger.atFine().log("CACHE {} *not* to reload key {}...", cacheName, key);
+        logger.atFine().log("CACHE %s *not* to reload key %s...", cacheName, key);
       }
     } else {
-      logger.atFine().log("CACHE {} to *not* to evict {}...", cacheName, key);
+      logger.atFine().log("CACHE %s to *not* to evict %s...", cacheName, key);
     }
 
     if (evicted) {
@@ -126,7 +126,7 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
       logger.atFine().log("Success for %s!", methodName);
     } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException | SecurityException ex) {
       final String err = String.format("CACHE method call has been lost, could not call %s. %s", cacheName, methodName);
-      logger.atSevere().log(err, ex);
+      logger.atSevere().withCause(ex).log(err);
       throw new ReplicatedEventsUnknownTypeException(err);
     }
   }

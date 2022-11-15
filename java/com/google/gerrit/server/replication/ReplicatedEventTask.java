@@ -13,10 +13,8 @@
 
 package com.google.gerrit.server.replication;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
@@ -35,7 +33,7 @@ public class ReplicatedEventTask implements Runnable {
   // Its useful to know when we complete a replicated task how many events are within the task file.
   private long numEventsToProcess;
 
-  private static Logger logger = LoggerFactory.getLogger(ReplicatedEventTask.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   public String getProjectname() {
     return projectName;
@@ -62,13 +60,13 @@ public class ReplicatedEventTask implements Runnable {
   public void run() {
     // Run main processing on the events file we have been supplied, if we are asked to shutdown, do not
     // delete this events file, let it sit here, and it will be processed when the server next comes alive.!
-    logger.debug("ReplicatedEventsThread about to start new task, processing project: {}, with eventsFile: {}",
+    logger.atFine().log("ReplicatedEventsThread about to start new task, processing project: %s, with eventsFile: %s",
         projectName, eventsFileToProcess.getAbsolutePath());
 
     if (!replicatedEventsCoordinator.isReplicationEnabled()) {
       // if the indexer isn't really running we could read the file but couldn't do anything with it.
       // This is used by our unit tests, so lets exit now and keep the queue correct for testing.
-      logger.debug("GerritIndexerRunning is false = Skipping work in worker thread for project {} on eventFile: {}",
+      logger.atFine().log("GerritIndexerRunning is false = Skipping work in worker thread for project %s on eventFile: %s",
           projectName, eventsFileToProcess.getAbsolutePath());
       return;
     }
@@ -88,7 +86,7 @@ public class ReplicatedEventTask implements Runnable {
       //If we throw for any reason then we need to check for failure backoff. For example the bos wasn't
       //returned due to file corruption or file system problem etc we at least backoff and retry several times
       //before moving to the failed folder.
-      logger.error("Problem when dealing with events byte stream. {}", e.getMessage());
+      logger.atSevere().withCause(e).log("Problem when dealing with events byte stream. %s", e.getMessage());
       replicatedEventsCoordinator.getReplicatedIncomingEventWorker().checkForFailureBackoff(this,
           replicatedEventsCoordinator.getReplicatedScheduling(), false, false,
           null, null);

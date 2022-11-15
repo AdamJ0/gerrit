@@ -161,11 +161,11 @@ public class PersistedEventInformation {
         getNumEventsWritten().incrementAndGet();
 
         logger.atFine().log("Number of events written to the events file [ %s ] for " +
-                "project [ %s ] is currently : [ %s ].", eventFile, projectName, getNumEventsWritten().get() );
+                "project [ %s ] is currently : [ %d ].", eventFile, projectName, getNumEventsWritten().get() );
       }
 
     } catch (IOException e) {
-      logger.atSevere().log("Unable to write the JSON event bytes to [ %s ] :", e.getMessage());
+      logger.atSevere().withCause(e).log("Unable to write the JSON event bytes to [ %s ] :", e.getMessage());
       return false;
     }
     return true;

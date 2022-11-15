@@ -1,5 +1,6 @@
 package com.google.gerrit.server.replication.feeds;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.replication.customevents.CacheKeyWrapper;
 import com.google.gerrit.server.replication.customevents.CacheObjectCallWrapper;
 import com.google.gerrit.server.replication.GerritEventFactory;
@@ -8,8 +9,6 @@ import com.google.gerrit.server.replication.SingletonEnforcement;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.inject.Singleton;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -72,9 +71,10 @@ import java.util.List;
  * Threads: 40 CPUs available, 487 threads
  * </code>
  */
-@Singleton //Not guice bound but makes it clear that its a singleton
+@Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedOutgoingCacheEventsFeed extends ReplicatedOutgoingEventsFeedCommon {
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedOutgoingCacheEventsFeed.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
+
   private static List<String> cacheEvictList = null;
   public static final String evictAllWildCard = "*";
 
@@ -111,11 +111,11 @@ public class ReplicatedOutgoingCacheEventsFeed extends ReplicatedOutgoingEventsF
     String allUsers = replicatedEventsCoordinator.getReplicatedConfiguration().getAllUsersName();
 
     if (key.toString().equals(evictAllWildCard)){
-      log.info("CACHE key is [ {} ] so evicting all from cache: [ {} ]", evictAllWildCard, cacheName);
+      logger.atInfo().log("CACHE key is [ %s ] so evicting all from cache: [ %s ]", evictAllWildCard, cacheName);
     }
 
     try {
-      log.debug("CACHE About to call replicated eviction from cache for : CacheName: [ {} ] , Key: [ {} ]", cacheName, key);
+      logger.atFine().log("CACHE About to call replicated eviction from cache for : CacheName: [ %s ] , Key: [ %s ]", cacheName, key);
 
       //Set eventWrapper to the All-Projects EventWrapper initially
       eventWrapper = GerritEventFactory.createReplicatedAllProjectsCacheEvent(cacheKeyWrapper);
@@ -124,25 +124,25 @@ public class ReplicatedOutgoingCacheEventsFeed extends ReplicatedOutgoingEventsF
       // cache eviction list.
       if (getAllUsersCacheEvictList().contains(cacheName)) {
         //Block to force cache update to the All-Users repo so it is triggered in sequence after event that caused the eviction.
-        log.debug("CACHE User replicated cache eviction All-Users Project CacheName: [ {} ], Key: [ {} ]", cacheName, key);
+        logger.atFine().log("CACHE User replicated cache eviction All-Users Project CacheName: [ %s ], Key: [ %s ]", cacheName, key);
         eventWrapper = GerritEventFactory.createReplicatedCacheEvent(allUsers, cacheKeyWrapper);
       }
 
       replicatedEventsCoordinator.queueEventForReplication(eventWrapper);
       ReplicatorMetrics.addEvictionsSent(cacheName);
     } catch (IOException e) {
-      log.error("Unable to create EventWrapper instance from replicated cache event : {}", e.getMessage());
+      logger.atSevere().withCause(e).log("Unable to create EventWrapper instance from replicated cache event : %s", e.getMessage());
     }
   }
 
   public void replicateMethodCallFromCache(String cacheName, String methodName, Object key) {
-    CacheObjectCallWrapper cacheMehodCall = new CacheObjectCallWrapper(cacheName, methodName, key, replicatedEventsCoordinator.getThisNodeIdentity());
-    log.info("CACHE About to call replicated cache method: {},{},{}", cacheName, methodName, key);
+    CacheObjectCallWrapper cacheMethodCall = new CacheObjectCallWrapper(cacheName, methodName, key, replicatedEventsCoordinator.getThisNodeIdentity());
+    logger.atInfo().log("CACHE About to call replicated cache method: %s, %s, %s", cacheName, methodName, key);
     try {
       replicatedEventsCoordinator.queueEventForReplication(
-          GerritEventFactory.createReplicatedAllProjectsCacheEvent(cacheMehodCall));
+          GerritEventFactory.createReplicatedAllProjectsCacheEvent(cacheMethodCall));
     } catch (IOException e) {
-      log.error("Unable to create EventWrapper instance from replicated cache event", e);
+      logger.atSevere().withCause(e).log("Unable to create EventWrapper instance from replicated cache event");
     }
   }
 

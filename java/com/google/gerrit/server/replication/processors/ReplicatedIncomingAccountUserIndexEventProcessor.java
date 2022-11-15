@@ -1,5 +1,6 @@
 package com.google.gerrit.server.replication.processors;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.reviewdb.client.Account;
 import com.google.gerrit.server.replication.SingletonEnforcement;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
@@ -8,8 +9,6 @@ import com.google.gerrit.server.replication.exceptions.ReplicatedEventsTransient
 import com.google.gerrit.server.index.account.AccountIndexer;
 import com.google.inject.Singleton;
 import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
@@ -18,8 +17,7 @@ import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.AC
 
 @Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedIncomingAccountUserIndexEventProcessor extends AbstractReplicatedEventProcessor {
-  private static final Logger log = LoggerFactory.getLogger(
-      ReplicatedIncomingAccountUserIndexEventProcessor.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   private AccountIndexer indexer;
 
@@ -35,7 +33,7 @@ public class ReplicatedIncomingAccountUserIndexEventProcessor extends AbstractRe
    */
   public ReplicatedIncomingAccountUserIndexEventProcessor(ReplicatedEventsCoordinator eventsCoordinator) {
     super(ACCOUNT_USER_INDEX_EVENT, eventsCoordinator);
-    log.info("Creating main processor for event type: {}", eventType);
+    logger.atInfo().log("Creating main processor for event type: %s", eventType);
     subscribeEvent(this);
     SingletonEnforcement.registerClass(ReplicatedIncomingAccountUserIndexEventProcessor.class);
   }
@@ -63,7 +61,7 @@ public class ReplicatedIncomingAccountUserIndexEventProcessor extends AbstractRe
       getIndexer().indexNoRepl(new Account.Id(accountUserIndexEvent.id.get()));
     } catch (IOException ie) {
       final String err = String.format("RC AccountUser reindex issue hit while carrying out reindex of %s", accountUserIndexEvent);
-      log.error(err, ie);
+      logger.atSevere().withCause(ie).log(err);
       throw new ReplicatedEventsTransientException(err, ie);
     }
   }

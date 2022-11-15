@@ -1,20 +1,19 @@
 package com.google.gerrit.server.replication.processors;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.index.project.ProjectIndexer;
 import com.google.gerrit.server.replication.SingletonEnforcement;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.server.replication.customevents.ProjectIndexEvent;
 import com.google.gerrit.server.replication.exceptions.ReplicatedEventsTransientException;
 import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.PROJECTS_INDEX_EVENT;
 
 
 public class ReplicatedIncomingProjectIndexEventProcessor extends AbstractReplicatedEventProcessor {
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedIncomingProjectIndexEventProcessor.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
   private ProjectIndexer indexer;
 
   /**
@@ -29,7 +28,7 @@ public class ReplicatedIncomingProjectIndexEventProcessor extends AbstractReplic
    */
   public ReplicatedIncomingProjectIndexEventProcessor(ReplicatedEventsCoordinator eventsCoordinator) {
     super(PROJECTS_INDEX_EVENT, eventsCoordinator);
-    log.info("Creating main processor for event type: {}", eventType);
+    logger.atInfo().log("Creating main processor for event type: %s", eventType);
     subscribeEvent(this);
     SingletonEnforcement.registerClass(ReplicatedIncomingProjectIndexEventProcessor.class);
   }
@@ -79,7 +78,7 @@ public class ReplicatedIncomingProjectIndexEventProcessor extends AbstractReplic
     }catch (IOException e){
       final String err = String.format("RC Project reindex issue " +
           "hit while carrying out reindex of %s, isDeleteIndex :[ %s ]", projectIndexEvent, projectIndexEvent.isDeleteIndex());
-      log.error(err, e);
+      logger.atSevere().withCause(e).log(err);
       throw new ReplicatedEventsTransientException(err, e);
     }
     return true;

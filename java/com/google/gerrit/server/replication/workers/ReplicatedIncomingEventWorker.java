@@ -632,7 +632,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
     final File eventsFileBeingProcessed = replicatedEventTask.getEventsFileToProcess();
     final ReplicatedScheduling replicatedScheduling = replicatedEventsCoordinator.getReplicatedScheduling();
 
-    // Please note the failure / decision making has been placed here to make it centralized, but equally the
+    // Please note the failure / decision-making has been placed here to make it centralized, but equally the
     // ReplicatedThreadPool before/afterExecute would allow us to also make decisions on each worker as it shuts down
     // I am keeping here for now for simplicity of understanding, and only a mop up belts and braces clear of WIP is in
     // after execute.  Although I do use it for timing of our event tasks for metrics, which keeps this code cleaner!
@@ -801,7 +801,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
     try {
       FailedEventUtil.persistRemainingEvents(replicatedEventsCoordinator, replicatedEventTask, remainingEvents);
     } catch (IOException e) {
-      logger.atSevere().log("Could not persist remaining events ", e.getMessage());
+      logger.atSevere().withCause(e).log("Could not persist remaining events ", e.getMessage());
     }
   }
 

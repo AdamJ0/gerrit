@@ -53,12 +53,12 @@ public class ReplicatedScheduling {
   private long eventDirLastModifiedTime = 0;
 
   /**
-   * We only create this class from the replicatedEventscoordinator.
-   * This is a singleton and its enforced by our SingletonEnforcement below that if anyone else tries to create
+   * We only create this class from the replicatedEventsCoordinator.
+   * This is a singleton and it's enforced by our SingletonEnforcement below that if anyone else tries to create
    * this class it will fail.
    * Sorry by adding a getInstance, make this class look much more public than it is,
    * and people expect they can just call getInstance - when in fact they should always request it via the
-   * ReplicatedEventsCordinator.getReplicatedXWorker() methods.
+   * ReplicatedEventsCoordinator.getReplicatedXWorker() methods.
    *
    * @param replicatedEventsCoordinator
    */
@@ -115,7 +115,7 @@ public class ReplicatedScheduling {
    * pollAndWriteOutgoingEvents or readAndPublishIncomingEvents
    */
   public void startScheduledWorkers() {
-    logger.atInfo().log("Scheduled ReplicatedIncomingEventWorker to run at fixed rate of every {} ms with initial delay of {} ms",
+    logger.atInfo().log("Scheduled ReplicatedIncomingEventWorker to run at fixed rate of every %d ms with initial delay of %d ms",
         replicatedConfiguration.getEventWorkerDelayPeriodMs(), replicatedConfiguration.getEventWorkerDelayPeriodMs());
     scheduledIncomingFuture =
         workerPool.scheduleWithFixedDelay(replicatedEventsCoordinator.getReplicatedIncomingEventWorker(),
@@ -123,7 +123,7 @@ public class ReplicatedScheduling {
             replicatedConfiguration.getEventWorkerDelayPeriodMs(),
             TimeUnit.MILLISECONDS);
 
-    logger.atInfo().log("Scheduled ReplicatedOutgoingEventWorker to run at fixed rate of every {} ms with initial delay of {} ms",
+    logger.atInfo().log("Scheduled ReplicatedOutgoingEventWorker to run at fixed rate of every %d ms with initial delay of %d ms",
         replicatedConfiguration.getEventWorkerDelayPeriodMs(), replicatedConfiguration.getEventWorkerDelayPeriodMs());
     scheduledOutgoingFuture =
         workerPool.scheduleWithFixedDelay(replicatedEventsCoordinator.getReplicatedOutgoingEventWorker(),
@@ -154,7 +154,7 @@ public class ReplicatedScheduling {
     // N.B These do not need to be null checked as they are created only upon construction.
     workerPool.shutdownNow();
     // quickly on shutdown log what is happening.
-    logger.atInfo().log("Logging current state of the ReplicatedThreadPool on shutdown: {}", replicatedWorkThreadPoolExecutor.toString());
+    logger.atInfo().log("Logging current state of the ReplicatedThreadPool on shutdown: %s", replicatedWorkThreadPoolExecutor.toString());
     replicatedWorkThreadPoolExecutor.shutdownNow();
     //We don't need an awaitTermination here as we don't have anything else to do.
     SingletonEnforcement.unregisterClass(ReplicatedScheduling.class);
@@ -200,13 +200,13 @@ public class ReplicatedScheduling {
     // schedule method below private and only used / protected by this method/lock.
     synchronized (getEventsFileInProgressLock()) {
 
-      // We need to check have we got max number of threads / wip.  If we have don't queue any more at moment,
+      // We need to check have we got max number of threads / wip.  If we have don't queue anymore at moment,
       // onto next file please.
       if (getNumEventFilesInProgress() >= replicatedConfiguration.getMaxNumberOfEventWorkerThreads()) {
         // we have the max number of threads in progress - just return now and we will re-queue this later.
-        // Add this file to the skipped list, for decision making later on.
+        // Add this file to the skipped list, for decision-making later on.
         addSkippedProjectEventFile(eventsFileToProcess, projectName);
-        logger.atFine().log("Not scheduling event file: {}. for project: {}, all workers busy.", eventsFileToProcess, projectName);
+        logger.atFine().log("Not scheduling event file: %s. for project: %s, all workers busy.", eventsFileToProcess, projectName);
         return null;
       }
 
@@ -215,7 +215,7 @@ public class ReplicatedScheduling {
         // we have to skip all processing I could add this to the skipped list, and I will just for metrics of how many
         // skipped at the end.
         addSkippedProjectEventFile(eventsFileToProcess, projectName);
-        logger.atFine().log("Not scheduling event file: {}. for project: {}, as we are skipping / backing off this project for now.", eventsFileToProcess, projectName);
+        logger.atFine().log("Not scheduling event file: %s. for project: %s, as we are skipping / backing off this project for now.", eventsFileToProcess, projectName);
         return null;
       }
 
@@ -226,13 +226,13 @@ public class ReplicatedScheduling {
         if ( wipTask.getEventsFileToProcess() == eventsFileToProcess ){
           // this exact file is in progress - lets just skip over it, but DO NOT add to skip list as its in progress
           // if it succeeds its completed, and if it fails its prepended onto the start of the skipped list.
-          logger.atFine().log("Not scheduling file: {} as its in progress for the project already. ", eventsFileToProcess);
+          logger.atFine().log("Not scheduling file: %s as its in progress for the project already. ", eventsFileToProcess);
           return null;
         }
         // We already have this project in progress, just schedule this as a skipped entry for this project so we can
         // come back to it.
         addSkippedProjectEventFile(eventsFileToProcess, projectName);
-        logger.atFine().log("Not scheduling event file: {}. for project: {}, as we have already a project in progress for this project.", eventsFileToProcess, projectName);
+        logger.atFine().log("Not scheduling event file: %s. for project: %s, as we have already a project in progress for this project.", eventsFileToProcess, projectName);
         return null;
       }
 
@@ -253,7 +253,7 @@ public class ReplicatedScheduling {
         // we are close to the limit - and no room for new non-core projects - bounce this one.
         addSkippedProjectEventFile(eventsFileToProcess, projectName);
         logger.atInfo().atMostEvery(replicatedConfiguration.getLoggingMaxPeriodValueMs(), TimeUnit.MILLISECONDS)
-            .log("Not scheduling event file: {}. for project: {}, as all (project-only) worker threads are busy for now, please consider increasing the worker pool. ConfigurationDetails: {}. ",
+            .log("Not scheduling event file: %s. for project: %s, as all (project-only) worker threads are busy for now, please consider increasing the worker pool. ConfigurationDetails: %s. ",
             eventsFileToProcess, projectName, replicatedConfiguration);
         return null;
       }
@@ -295,13 +295,13 @@ public class ReplicatedScheduling {
     synchronized (getEventsFileInProgressLock()) {
       if (!getSkippedProjectsEventFiles().containsKey(projectName)) {
         getSkippedProjectsEventFiles().put(projectName, new ArrayDeque<File>());
-        logger.atFine().log("Creating new ArrayDeque pointing key for project: {}", projectName);
+        logger.atFine().log("Creating new ArrayDeque pointing key for project: %s", projectName);
       }
 
       // get the queue
       Deque<File> eventsBeingSkipped = getSkippedProjectsEventFiles().get(projectName);
       if (eventsBeingSkipped.contains(eventsFileToProcess)) {
-        logger.atWarning().log("Caller has attempted to add an already skipped over event file to the end of the list - track this down eventFile: {}.",
+        logger.atWarning().log("Caller has attempted to add an already skipped over event file to the end of the list - track this down eventFile: %s.",
             eventsFileToProcess);
         return;
       }
@@ -324,12 +324,12 @@ public class ReplicatedScheduling {
     synchronized (getEventsFileInProgressLock()) {
       if (!getSkippedProjectsEventFiles().containsKey(projectName)) {
         getSkippedProjectsEventFiles().put(projectName, new ArrayDeque<File>());
-        logger.atFine().log("PrependSkippedProjectEventFile: Creating new ArrayDeque pointing key for project: {}", projectName);
+        logger.atFine().log("PrependSkippedProjectEventFile: Creating new ArrayDeque pointing key for project: %s", projectName);
       }
 
       Deque<File> eventsBeingSkipped = getSkippedProjectsEventFiles().get(projectName);
       if (eventsBeingSkipped.contains(eventsFileToProcess)) {
-        logger.atWarning().log("Caller has attempted to prepend an already skipped over event file to the end of the list - track this down eventFile: {}.",
+        logger.atWarning().log("Caller has attempted to prepend an already skipped over event file to the end of the list - track this down eventFile: %s.",
             eventsFileToProcess);
         return;
       }
@@ -350,7 +350,7 @@ public class ReplicatedScheduling {
 
   public void removeSkippedProjectEventFile(File eventsFileToProcess, String projectName) {
     if (!getSkippedProjectsEventFiles().containsKey(projectName)) {
-      logger.atWarning().log("Unable to delete skipped event file for project {} as its already gone", projectName);
+      logger.atWarning().log("Unable to delete skipped event file for project %s as its already gone", projectName);
       return;
     }
 
@@ -360,13 +360,13 @@ public class ReplicatedScheduling {
         getSkippedProjectEventFilesList(projectName).isEmpty()) {
       // lets remove this project set now - so its null and no key exists pointing to it
       getSkippedProjectsEventFiles().remove(projectName);
-      logger.atFine().log("Deleting pointing key as no items remain in the set for project: {}", projectName);
+      logger.atFine().log("Deleting pointing key as no items remain in the set for project: %s", projectName);
     }
   }
 
   public File getFirstSkippedProjectEventFile(String projectName) {
     if (!getSkippedProjectsEventFiles().containsKey(projectName)) {
-      logger.atWarning().log("Unable to delete skipped event file for project {} as its already gone", projectName);
+      logger.atWarning().log("Unable to delete skipped event file for project %s as its already gone", projectName);
       return null;
     }
 
@@ -376,7 +376,7 @@ public class ReplicatedScheduling {
 
   public Deque<File> getSkippedProjectEventFilesList(String projectName) {
     if (!getSkippedProjectsEventFiles().containsKey(projectName)) {
-      logger.atWarning().log("Unable to delete skipped event file for project {} as its already gone", projectName);
+      logger.atWarning().log("Unable to delete skipped event file for project %s as its already gone", projectName);
       return null;
     }
 
@@ -452,15 +452,15 @@ public class ReplicatedScheduling {
 
       // if something went wrong we can skip a project even at this late state..
       if (eventsFileToReallyProcess == null) {
-        logger.atWarning().log("Something went wrong considering event file: {}, it will be picked up later.", eventsFileToReallyProcess);
+        logger.atWarning().log("Something went wrong considering event file: %s, it will be picked up later.", eventsFileToReallyProcess);
         return null;
       }
 
-      // Otherwise create a new task for this event file given and lets schedule/execute it now.
+      // Otherwise create a new task for this event file given and let's schedule/execute it now.
       final ReplicatedEventTask newTask = new ReplicatedEventTask(projectName, eventsFileToReallyProcess, replicatedEventsCoordinator);
 
-      // We only call execute if we actually want to run these remote tasks. for testing I allow them to be queued, but not
-      // really removed from the queue by the remote thread - easiest way is to check the indexer really running state.
+      // We only call execute if we actually want to run these remote tasks. for testing, I allow them to be queued, but not
+      // really removed from the queue by the remote thread - the easiest way is to check the indexer really running state.
       if (replicatedEventsCoordinator.isReplicationEnabled()) {
         // Keep this order, if it fails to queue the task - it will throw, and not add to inProgress map.
         replicatedWorkThreadPoolExecutor.execute(newTask);
@@ -494,7 +494,7 @@ public class ReplicatedScheduling {
     // execute throws because the event can't be queued we dont want it in this map of in progress.
     synchronized (eventsFilesInProgress) {
       if (eventsFilesInProgress.containsKey(newTask.getProjectname())) {
-        logger.atWarning().log("RE eventsFileInProgress already contains a project ReplicatedEventTask {} for this project, attempting self heal!", newTask);
+        logger.atWarning().log("RE eventsFileInProgress already contains a project ReplicatedEventTask %s for this project, attempting self heal!", newTask);
       }
       // this will force update the WIP - we should never be overwriting an entry - means we have scheduled the same project
       // twice - which isn't correct.investigate.
@@ -516,12 +516,12 @@ public class ReplicatedScheduling {
 
     synchronized (eventsFilesInProgress) {
       // We only put the events file in progress into the WIP map after we call execute as we are in a lock here, and if
-      // execute throws because the event can't be queued we dont want it in this map of in progress.
+      // execute throws because the event can't be queued we don't want it in this map of in progress.
       if (!eventsFilesInProgress.remove(newTask.getProjectname(), newTask)) {
         if (allowItemToNotExist) {
           return;
         }
-        logger.atSevere().log("Something strange happened clearing out wip for events file: {}, clearing this entire project to recover.", newTask);
+        logger.atSevere().log("Something strange happened clearing out wip for events file: %s, clearing this entire project to recover.", newTask);
         eventsFilesInProgress.remove(newTask.getProjectname());
       }
     }
@@ -565,7 +565,7 @@ public class ReplicatedScheduling {
   }
 
   /**
-   * Very specific code, to check if this project has skipped projects already in existance.
+   * Very specific code, to check if this project has skipped projects already in existence.
    * If it does it adds this event file to the end of the skipped list and then takes the first one out FIFO,
    * therefore it will perform the file it just took of the list as the next event to be processed keeping existing
    * ordering for this project intact.
@@ -576,7 +576,7 @@ public class ReplicatedScheduling {
    */
   private File checkSwapoutSkippedProjectEvent(File eventsFileToProcess, String projectName) {
     // Only one caller / thread ever checks this, and only the same thread can swap out,
-    // so no locking needed currently but for clarity I am locking - it wont add contention but helps for clarity
+    // so no locking needed currently but for clarity I am locking - it won't add contention but helps for clarity
     // that we can't be interrupted.
     synchronized (getEventsFileInProgressLock()) {
       if (!skippedProjectsEventFiles.containsKey(projectName)) {
@@ -589,7 +589,7 @@ public class ReplicatedScheduling {
       File eventsFileToReallyProcess = getFirstSkippedProjectEventFile(projectName);
 
       if (eventsFileToReallyProcess == eventsFileToProcess) {
-        logger.atSevere().log("Invalid ordering of events processing discovered, where it picked up last event as LIFO not FIFO. File: {}", eventsFileToProcess);
+        logger.atSevere().log("Invalid ordering of events processing discovered, where it picked up last event as LIFO not FIFO. File: %s", eventsFileToProcess);
         // Failing this entire project, and do no more processing on it.
         // When we finish this iteration we can pick up this project fresh with new state - and hopefully recover!
         addSkipThisProjectsEventsForNow(projectName);
@@ -598,7 +598,7 @@ public class ReplicatedScheduling {
 
       // lets remove the item we got back.
       removeSkippedProjectEventFile(eventsFileToReallyProcess, projectName);
-      logger.atInfo().log("Swapped out supplied file: {} for an earlier file in the skipped list: {}",
+      logger.atInfo().log("Swapped out supplied file: %s for an earlier file in the skipped list: %s",
           eventsFileToProcess, eventsFileToReallyProcess);
       return eventsFileToReallyProcess;
     }
@@ -678,7 +678,7 @@ public class ReplicatedScheduling {
 
     if ((currentTime - startTime) > maxBackOffPeriod) {
       // Decided to retry this project eventually.
-      logger.atFine().log("Decided we might be able to reschedule work for skipped project: {} for eventFile: {}",
+      logger.atFine().log("Decided we might be able to reschedule work for skipped project: %s for eventFile: %s",
           skipInfo.toString(), eventsFileToProcess);
       return false;
     }

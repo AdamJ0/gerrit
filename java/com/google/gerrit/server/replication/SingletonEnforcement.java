@@ -37,7 +37,7 @@ public class SingletonEnforcement {
 
   /**
    * SimpleSingletonEnforcement is a simple way of enforcing a class to be a singleton
-   * pattern - this will remove the entry registerd for a given class so it can be recreated if requird.
+   * pattern - this will remove the entry registered for a given class, so it can be recreated if required.
    *
    * @param className
    */

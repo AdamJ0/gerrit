@@ -1,8 +1,8 @@
 package com.google.gerrit.server.replication.feeds;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.events.ChangeEvent;
 import com.google.gerrit.server.events.EventTypes;
-import com.google.gerrit.server.events.PatchSetEvent;
 import com.google.gerrit.server.events.ProjectEvent;
 import com.google.gerrit.server.events.RefEvent;
 import com.google.gerrit.server.events.SkipReplication;
@@ -15,30 +15,18 @@ import com.google.gerrit.extensions.events.LifecycleListener;
 import com.google.gerrit.lifecycle.LifecycleModule;
 import com.google.gerrit.reviewdb.client.Branch;
 import com.google.gerrit.reviewdb.client.Project;
-import com.google.gerrit.server.events.ChangeAbandonedEvent;
-import com.google.gerrit.server.events.ChangeMergedEvent;
-import com.google.gerrit.server.events.ChangeRestoredEvent;
-import com.google.gerrit.server.events.CommentAddedEvent;
-import com.google.gerrit.server.events.CommitReceivedEvent;
 import com.google.gerrit.server.events.Event;
 import com.google.gerrit.server.events.EventBroker;
 import com.google.gerrit.server.events.EventListener;
-import com.google.gerrit.server.events.PatchSetCreatedEvent;
-import com.google.gerrit.server.events.ProjectCreatedEvent;
 import com.google.gerrit.server.events.RefUpdatedEvent;
-import com.google.gerrit.server.events.ReviewerAddedEvent;
-import com.google.gerrit.server.events.ReviewerDeletedEvent;
-import com.google.gerrit.server.events.TopicChangedEvent;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
 @Singleton //This class is guice bound
 public class ReplicatedOutgoingServerEventsFeed implements LifecycleListener {
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedOutgoingServerEventsFeed.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   private ReplicatedEventsCoordinator coordinator;
   private ReplicatedConfiguration configuration;
@@ -95,10 +83,10 @@ public class ReplicatedOutgoingServerEventsFeed implements LifecycleListener {
           }
           coordinator.queueEventForReplication(GerritEventFactory.createReplicatedChangeEvent(event, changeEventInfo));
         } catch (IOException e) {
-          log.error("Unable to queue server event for replication {}", e.getMessage());
+          logger.atSevere().withCause(e).log("Unable to queue server event for replication %s", e.getMessage());
         }
       } else {
-        log.debug("Event type {} is present in the event skip list. Skipping.", event.getType());
+        logger.atFine().log("Event type %s is present in the event skip list. Skipping.", event.getType());
       }
     }
   };
@@ -168,14 +156,14 @@ public class ReplicatedOutgoingServerEventsFeed implements LifecycleListener {
       // be grouped with the rest of the RefEvents
     } else if (newEvent instanceof RefUpdatedEvent) {
       handleRefUpdatedEvent((RefUpdatedEvent) newEvent, changeEventInfo);
-      //If its an instance of a RefEvent that is not a RefUpdatedEvent
+      //If it's an instance of a RefEvent that is not a RefUpdatedEvent
     } else if (newEvent instanceof RefEvent) {
       handleRefEvent((RefEvent) newEvent, changeEventInfo);
       //ProjectEvents
     } else if (newEvent instanceof ProjectEvent) {
       handleProjectEvent((ProjectEvent) newEvent, changeEventInfo);
     } else {
-      log.info("RE {} is not supported!", newEvent.getClass().getName());
+      logger.atInfo().log("RE %s is not supported!", newEvent.getClass().getName());
       changeEventInfo.setSupported(false);
     }
     return changeEventInfo;
@@ -196,7 +184,7 @@ public class ReplicatedOutgoingServerEventsFeed implements LifecycleListener {
 
   private void handleRefUpdatedEvent(RefUpdatedEvent newEvent, ReplicatedChangeEventInfo changeEventInfo) {
     if(newEvent.refUpdate == null){
-      log.info("RE {} is not supported, project name or ref update is null!", newEvent.getClass().getName());
+      logger.atInfo().log("RE %s is not supported, project name or ref update is null!", newEvent.getClass().getName());
       changeEventInfo.setSupported(false);
       return;
     }

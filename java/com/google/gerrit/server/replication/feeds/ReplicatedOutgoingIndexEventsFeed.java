@@ -1,19 +1,18 @@
 package com.google.gerrit.server.replication.feeds;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.replication.GerritEventFactory;
 import com.google.gerrit.server.replication.customevents.IndexToReplicate;
 import com.google.gerrit.server.replication.SingletonEnforcement;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.inject.Singleton;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.sql.Timestamp;
 
 @Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedOutgoingIndexEventsFeed extends ReplicatedOutgoingEventsFeedCommon {
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedOutgoingIndexEventsFeed.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   /**
    * Constructor is public but only a replicatedEventsCoordinator should create instances and all other references
@@ -70,7 +69,7 @@ public class ReplicatedOutgoingIndexEventsFeed extends ReplicatedOutgoingEventsF
           new IndexToReplicate(indexNumber, projectName, lastUpdatedOn, deleteIndex,
               replicatedEventsCoordinator.getReplicatedConfiguration().getThisNodeIdentity(), safeToIgnoreMissingChange);
       replicatedEventsCoordinator.queueEventForReplication(GerritEventFactory.createReplicatedIndexEvent(indexToReplicate));
-      log.debug("RC Just added {} to cache queue", indexToReplicate);
+      logger.atFine().log("RC Just added %s to cache queue", indexToReplicate);
     }
   }
 }

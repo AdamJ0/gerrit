@@ -1,12 +1,11 @@
 package com.google.gerrit.server.replication;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.server.replication.customevents.IndexToReplicate;
 import com.google.gerrit.server.replication.customevents.IndexToReplicateComparable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.sql.Timestamp;
 
@@ -16,7 +15,7 @@ import java.sql.Timestamp;
  * It will take into account timezone offsets between servers when comparing times.
  */
 public class ReplicatedChangeTimeChecker {
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedChangeTimeChecker.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   private final int thisNodeTimeZoneOffset;
   private final Change changeOnDb;
@@ -63,11 +62,11 @@ public class ReplicatedChangeTimeChecker {
 
   public ReplicatedChangeTimeChecker invoke() {
     int landedIndexTimeZoneOffset = indexToReplicate.timeZoneRawOffset;
-    log.debug("landedIndexTimeZoneOffset={}",landedIndexTimeZoneOffset);
-    log.debug("indexToReplicate.lastUpdatedOn.getTime() = {}", indexToReplicate.lastUpdatedOn.getTime());
+    logger.atFine().log("landedIndexTimeZoneOffset=%s",landedIndexTimeZoneOffset);
+    logger.atFine().log("indexToReplicate.lastUpdatedOn.getTime() = %s", indexToReplicate.lastUpdatedOn.getTime());
 
     changeIndexedMoreThanXMinutesAgo = changeIndexedLastTime(thisNodeTimeZoneOffset, indexToReplicate, landedIndexTimeZoneOffset);
-    log.debug("changeOnDb.getLastUpdatedOn().getTime() = {}", changeOnDb.getLastUpdatedOn().getTime());
+    logger.atFine().log("changeOnDb.getLastUpdatedOn().getTime() = %s", changeOnDb.getLastUpdatedOn().getTime());
 
     normalisedChangeTimestamp = new Timestamp(changeOnDb.getLastUpdatedOn().getTime() - thisNodeTimeZoneOffset);
     normalisedIndexToReplicate = new Timestamp(indexToReplicate.lastUpdatedOn.getTime() - landedIndexTimeZoneOffset);

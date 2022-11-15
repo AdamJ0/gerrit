@@ -1,6 +1,7 @@
 package com.google.gerrit.server.replication.configuration;
 
 import com.google.common.base.Strings;
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.lifecycle.LifecycleModule;
 import com.google.gerrit.server.config.AllProjectsNameProvider;
 import com.google.gerrit.server.config.AllUsersNameProvider;
@@ -14,8 +15,6 @@ import org.eclipse.jgit.lib.Config;
 import org.eclipse.jgit.storage.file.FileBasedConfig;
 import org.eclipse.jgit.util.FS;
 import org.eclipse.jgit.util.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -86,7 +85,7 @@ public class ReplicatedConfiguration {
     }
   }
 
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedConfiguration.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   private String thisNodeIdentity = null;
 
@@ -165,7 +164,7 @@ public class ReplicatedConfiguration {
         File applicationProperties = getApplicationPropsFile(getFileBasedGitConfig());
         this.gitMsApplicationProperties = new GitMsApplicationProperties(applicationProperties.getAbsolutePath());
       } catch (IOException | ConfigurationException e) {
-        log.error("While loading the .gitconfig file", e);
+        logger.atSevere().withCause(e).log("While loading the .gitconfig file");
         throw new ConfigInvalidException("Unable to continue without valid GerritMS configuration.");
       }
     }
@@ -319,7 +318,7 @@ public class ReplicatedConfiguration {
       // We allow supplied properties to be given to us so that we can create dummy config information
       // on the fly for tests easily without complicated mocking.
       if (suppliedProperties != null) {
-        log.info("Setting up replicated configuration with supplied properties.");
+        logger.atInfo().log("Setting up replicated configuration with supplied properties.");
 
         readAndDefaultConfigurationFromProperties(suppliedProperties);
 
@@ -352,8 +351,8 @@ public class ReplicatedConfiguration {
       incomingReplEventsDirectory = new File(replicatedEventsBaseDirectory, INCOMING_DIR);
       incomingFailedReplEventsDirectory = new File(replicatedEventsBaseDirectory, INCOMING_DIR + File.separator + FAILED_DIR);
 
-    } catch (IOException ee) {
-      log.error("While loading the .gitconfig file", ee);
+    } catch (IOException e) {
+      logger.atSevere().withCause(e).log("While loading the .gitconfig file");
       throw new ConfigInvalidException("Unable to continue without valid GerritMS configuration.");
     }
   }
@@ -412,7 +411,7 @@ public class ReplicatedConfiguration {
       gitmsApplicationProperties.load(propsFile);
     } catch (IOException e) {
         // we cant continue with invalid properties file - throw!
-        log.error("While reading GerritMS properties file", e);
+        logger.atSevere().withCause(e).log("While reading GerritMS properties file");
         throw new ConfigInvalidException("Unable to continue with invalid GerritMS replicated properties file: " +
             applicationProperties.getAbsolutePath());
     }
@@ -441,12 +440,12 @@ public class ReplicatedConfiguration {
     }
 
     if (!applicationProperties.exists() || !applicationProperties.canRead()) {
-      log.warn("Could not find/read (1) " + applicationProperties);
+      logger.atWarning().log("Could not find/read %s (1) ", applicationProperties);
       applicationProperties = new File(DEFAULT_MS_APPLICATION_PROPERTIES, "application.properties");
     }
 
     if (!applicationProperties.exists() || !applicationProperties.canRead()) {
-      log.warn("Could not find/read (2) " + applicationProperties);
+      logger.atWarning().log("Could not find/read %s (2) ", applicationProperties);
       defaultBaseDir = DEFAULT_BASE_DIR + File.separator
           + REPLICATED_EVENTS_DIRECTORY_NAME;
     }
@@ -541,7 +540,7 @@ public class ReplicatedConfiguration {
     }
 
     // log out the backoff periods
-    log.info("Replicated Event failure backoff periods: {}", indexBackoffPeriods.toString());
+    logger.atInfo().log("Replicated Event failure backoff periods: %s", indexBackoffPeriods.toString());
 
     // get the value for logging something atMaxEvery Y Timeunit.  Note we take the value in seconds,
     // but we allow the use of 0.5 etc in our props file.  We convert to MS then for each of knowing which timeunit
@@ -560,7 +559,7 @@ public class ReplicatedConfiguration {
             DEFAULT_MINUTES_SINCE_CHANGE_LAST_INDEXED_CHECK_PERIOD)));
 
 
-    log.info("Property {}={}", GERRIT_REPLICATED_EVENTS_BASEPATH, defaultBaseDir);
+    logger.atInfo().log("Property %s=%s", GERRIT_REPLICATED_EVENTS_BASEPATH, defaultBaseDir);
 
     // Replicated CACHE properties
     try {
@@ -575,23 +574,23 @@ public class ReplicatedConfiguration {
       }
     } catch (Exception e) {
       // we can continue with some defaults - just record this problem.
-      log.error("Not able to load cache properties", e);
+      logger.atSevere().withCause(e).log("Not able to load cache properties");
     }
 
-    replicatedEventsSend = true; // they must be always enabled, not dependant on GERRIT_REPLICATED_EVENTS_ENABLED_SEND
+    replicatedEventsSend = true; // they must be always enabled, not dependent on GERRIT_REPLICATED_EVENTS_ENABLED_SEND
     replicatedEventsReceive = Boolean.parseBoolean(props.getProperty(GERRIT_REPLICATED_EVENTS_ENABLED_RECEIVE, "true"));
     replicatedEventsReplicateOriginalEvents = Boolean.parseBoolean(props.getProperty(GERRIT_REPLICATED_EVENTS_RECEIVE_ORIGINAL, "true"));
 
     receiveReplicatedEventsEnabled = replicatedEventsReceive || replicatedEventsReplicateOriginalEvents;
     replicatedEventsEnabled = receiveReplicatedEventsEnabled || replicatedEventsSend;
     if (replicatedEventsEnabled) {
-      log.info("RE Replicated events are enabled, send: {}, receive: {}", replicatedEventsSend, receiveReplicatedEventsEnabled);
+      logger.atInfo().log("RE Replicated events are enabled, send: %s, receive: %s", replicatedEventsSend, receiveReplicatedEventsEnabled);
 
       int workerBaseNumThreads = Integer.parseInt(
           props.getProperty(GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE, DEFAULT_EVENT_WORKER_POOL_SIZE));
 
       if ( workerBaseNumThreads < 1 ){
-        log.error("Invalid number of worker threads indicated which is less than 1 - indicating default number {}", DEFAULT_EVENT_WORKER_POOL_SIZE);
+        logger.atSevere().log("Invalid number of worker threads indicated which is less than 1 - indicating default number %d", DEFAULT_EVENT_WORKER_POOL_SIZE);
         workerBaseNumThreads = Integer.parseInt(DEFAULT_EVENT_WORKER_POOL_SIZE);
       }
 
@@ -603,17 +602,17 @@ public class ReplicatedConfiguration {
       // Total number is the core thread pool size, plus our worker size.
       maxNumberOfEventWorkerThreads = workerBaseNumThreads + coreProjects.size();
 
-      // Default event worker idle period is 60X5 for 5mins.  Dont want a heavy thread churn.
+      // Default event worker idle period is 60X5 for 5mins.  Don't want a heavy thread churn.
       maxIdlePeriodEventWorkerThreadInSeconds = Integer.parseInt(
           props.getProperty(GERRIT_REPLICATED_EVENT_WORKER_POOL_IDLE_TIME_SECS, "300"));
 
-      log.info("RE Replicated events are to be processed using worker pool size: {} maxIdlePeriodSecs: {}.",
+      logger.atInfo().log("RE Replicated events are to be processed using worker pool size: %s maxIdlePeriodSecs: %s.",
           maxNumberOfEventWorkerThreads, maxIdlePeriodEventWorkerThreadInSeconds);
     } else {
-      log.info("RE Replicated events are disabled"); // This could not apppear in the log... cause the log could not yet be ready
+      logger.atInfo().log("RE Replicated events are disabled"); // This could not appear in the log... cause the log could not yet be ready
     }
 
-    log.info("RE Replicated events: receive={}, original={}, send={} ",
+    logger.atInfo().log("RE Replicated events: receive=%s, original=%s, send=%s ",
         replicatedEventsReceive, replicatedEventsReplicateOriginalEvents, replicatedEventsSend);
   }
 

@@ -1,5 +1,6 @@
 package com.google.gerrit.server.replication.feeds;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.server.replication.GerritEventFactory;
 import com.google.gerrit.server.replication.SingletonEnforcement;
@@ -7,14 +8,12 @@ import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordin
 import com.google.gerrit.server.replication.customevents.ProjectIndexEvent;
 import com.google.inject.Singleton;
 import com.wandisco.gerrit.gitms.shared.ReplicationConstants;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 
 @Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedOutgoingProjectIndexEventsFeed extends ReplicatedOutgoingEventsFeedCommon {
-  private static final Logger log = LoggerFactory.getLogger(ReplicatedOutgoingProjectIndexEventsFeed.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   /**
    * We only create this class from the replicatedEventsCoordinator.

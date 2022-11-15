@@ -150,7 +150,7 @@ public class ReplicatedOutgoingEventWorker implements Runnable {
         }
 
       } catch (IOException e) {
-        logger.atSevere().withCause(e).log("RE Cannot create buffer file for events queueing!", e);
+        logger.atSevere().withCause(e).log("RE Cannot create buffer file for events queueing!");
       }
     }
   }
@@ -244,7 +244,7 @@ public class ReplicatedOutgoingEventWorker implements Runnable {
       persistedEventInformationMap.put(projectName,
           new PersistedEventInformation(replicatedEventsCoordinator, originalEvent));
     } catch (IOException e) {
-      logger.atSevere().log("Could not add event for %s to the map to track, %s",
+      logger.atSevere().withCause(e).log("Could not add event for %s to the map to track, %s",
           projectName, e.getMessage());
     }
   }

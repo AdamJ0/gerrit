@@ -25,7 +25,7 @@ public class ReplicatedCacheWrapper {
     }
       done = true;
     } else {
-      logger.atSevere().log("CACHE is not supported!, Class is missing: {}", cache.getClass().getName());
+      logger.atSevere().log("CACHE is not supported!, Class is missing: %s", cache.getClass().getName());
     }
     return done;
   }
@@ -35,7 +35,7 @@ public class ReplicatedCacheWrapper {
     if (cache instanceof LoadingCache) {
       try {
         Object obj = ((LoadingCache) cache).get(key);
-        logger.atFine().log("{} loaded into the cache (1).", obj);
+        logger.atFine().log("%s loaded into the cache (1).", obj);
         done = true;
       } catch (Exception ex) {
         logger.atSevere().withCause(ex).log(
@@ -43,10 +43,10 @@ public class ReplicatedCacheWrapper {
       }
     } else if (cache instanceof Cache) {
       Object obj = ((Cache) cache).getIfPresent(key);
-      logger.atFine().log("{} loaded into the cache (2).", obj);
+      logger.atFine().log("%s loaded into the cache (2).", obj);
       done = true;
     } else {
-      logger.atSevere().log("CACHE is not supported!, Class is missing: {}", cache.getClass().getName());
+      logger.atSevere().log("CACHE is not supported!, Class is missing: %s", cache.getClass().getName());
     }
     return done;
   }

@@ -13,11 +13,10 @@
  
 package com.google.gerrit.server.replication;
 
+import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -25,7 +24,7 @@ import java.util.List;
 
 public final class FailedEventUtil {
 
-  private static final Logger log = LoggerFactory.getLogger(FailedEventUtil.class);
+  private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   private FailedEventUtil(){ }
 
@@ -35,12 +34,12 @@ public final class FailedEventUtil {
     if (!failedDir.exists()) {
       boolean mkdirs = failedDir.mkdirs();
       if (!mkdirs) {
-        log.error("Could not create directory for failed directory: " + failedDir.getAbsolutePath());
+        logger.atSevere().log("Could not create directory for failed directory: %s", failedDir.getAbsolutePath());
         return;
       }
     }
 
-    log.warn("Moving event file {} into the failed directory, it can be retried manually later " +
+    logger.atWarning().log("Moving event file %s into the failed directory, it can be retried manually later " +
             "by moving it back into the incoming events directory.", file.getAbsolutePath());
 
     renameFile(file, failedDir);
@@ -63,8 +62,8 @@ public final class FailedEventUtil {
     boolean renameOp = file.renameTo(new File(failedDir,file.getName()));
 
     if (!renameOp) {
-        log.error("There was an error attempting to rename the file. " +
-            "Could not move the file [ {} ] to the failed directory ", file.getAbsolutePath());
+        logger.atSevere().log("There was an error attempting to rename the file. " +
+            "Could not move the file [ %s ] to the failed directory ", file.getAbsolutePath());
     }
   }
 
@@ -73,7 +72,7 @@ public final class FailedEventUtil {
    * Takes a collection of events to persist. The collection will only contain the events that have not succeeded
    * or haven't succeeded yet. This can be as a result of a failure or a DB slow to catch up. This is done in
    * order to reduce the amount of retry work to only include the failed items, or items not succeeded yet.
-   * We backoff a file and try items again. This happen x number of times. If there are remaining items in the file
+   * We backoff a file and try items again. This happens x number of times. If there are remaining items in the file
    * after all the back offs, then a file can be moved to the failed directory.
    * This collection of events will be written back to the existing events file in progress atomically.
    * @param replicatedEventsCoordinator : ReplicatedEventsCoordinator instance to required for the
@@ -99,8 +98,8 @@ public final class FailedEventUtil {
     if(persistedEventInformation.setFileReady()){
       // Then do atomic rename of the .tmp file to its final event file name.
       if (persistedEventInformation.atomicRenameTmpFilename()) {
-        // The rename was successful
-        log.info("RE Removed completed events from existing event file [ {} ] for project [ {} ].",
+        // Rename was successful
+        logger.atInfo().log("RE Removed completed events from existing event file [ %s ] for project [ %s ].",
             persistedEventInformation.getFinalEventFileName(),
             persistedEventInformation.getProjectName());
       }
@@ -108,6 +107,6 @@ public final class FailedEventUtil {
     }
 
     //If we get here we haven't written any of the remaining events to the original file.
-    log.error("Unable to write remaining events to {}", replicatedEventTask.getEventsFileToProcess());
+    logger.atSevere().log("Unable to write remaining events to %s", replicatedEventTask.getEventsFileToProcess());
   }
 }

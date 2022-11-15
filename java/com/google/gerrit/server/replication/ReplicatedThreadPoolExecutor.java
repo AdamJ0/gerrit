@@ -64,7 +64,7 @@ public class ReplicatedThreadPoolExecutor extends ThreadPoolExecutor {
     if (r instanceof ReplicatedEventTask && replicatedEventsCoordinator.isReplicationEnabled()) {
       if (taskTime > 0) {
         // log out the output time for this event processor, and the num events if possible.
-        logger.atFine().log("RE Worker Thread finished task: %s, with endTime %s, taskTime=%dns", r, endTime, taskTime);
+        logger.atFine().log("RE Worker Thread finished task: %s, with endTime %d, taskTime=%dns", r, endTime, taskTime);
       }
 
       // Belts and braces protection here.
