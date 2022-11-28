@@ -20,6 +20,7 @@ import com.google.gerrit.extensions.common.AccountInfo;
 import com.google.gerrit.extensions.common.ApprovalInfo;
 import com.google.gerrit.extensions.common.ChangeInfo;
 import com.google.gerrit.extensions.common.RevisionInfo;
+import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.extensions.events.VoteDeletedListener;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.reviewdb.client.PatchSet;
@@ -29,12 +30,14 @@ import com.google.gerrit.server.patch.PatchListNotAvailableException;
 import com.google.gerrit.server.patch.PatchListObjectTooLargeException;
 import com.google.gerrit.server.permissions.PermissionBackendException;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import java.io.IOException;
 import java.sql.Timestamp;
 import java.util.Map;
+import java.util.StringJoiner;
 
 @Singleton
 public class VoteDeleted {
@@ -42,11 +45,13 @@ public class VoteDeleted {
 
   private final PluginSetContext<VoteDeletedListener> listeners;
   private final EventUtil util;
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
   @Inject
-  VoteDeleted(PluginSetContext<VoteDeletedListener> listeners, EventUtil util) {
+  VoteDeleted(PluginSetContext<VoteDeletedListener> listeners, EventUtil util, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     this.listeners = listeners;
     this.util = util;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   public void fire(
@@ -73,7 +78,8 @@ public class VoteDeleted {
               notify,
               message,
               util.accountInfo(remover),
-              when);
+              when,
+              replicatedEventsCoordinator.getThisNodeIdentity());
       listeners.runEach(l -> l.onVoteDeleted(event));
     } catch (PatchListObjectTooLargeException e) {
       logger.atWarning().log("Couldn't fire event: %s", e.getMessage());
@@ -86,6 +92,18 @@ public class VoteDeleted {
     }
   }
 
+  /**
+   * fire stream event off for its respective listeners to pick up.
+   * @param streamEvent VoteDeletedListener.Event
+   */
+  public void fire(VoteDeletedListener.Event streamEvent) {
+    if (listeners.isEmpty()) {
+      return;
+    }
+    listeners.runEach(l -> l.onVoteDeleted(streamEvent));
+  }
+
+  @isReplicatedStreamEvent
   private static class Event extends AbstractRevisionEvent implements VoteDeletedListener.Event {
     private final AccountInfo reviewer;
     private final Map<String, ApprovalInfo> approvals;
@@ -101,8 +119,9 @@ public class VoteDeleted {
         NotifyHandling notify,
         String message,
         AccountInfo remover,
-        Timestamp when) {
-      super(change, revision, remover, when, notify);
+        Timestamp when,
+        final String nodeIdentity) {
+      super(change, revision, remover, when, notify, nodeIdentity);
       this.reviewer = reviewer;
       this.approvals = approvals;
       this.oldApprovals = oldApprovals;
@@ -127,6 +146,45 @@ public class VoteDeleted {
     @Override
     public AccountInfo getReviewer() {
       return reviewer;
+    }
+
+    @Override
+    public String nodeIdentity() {
+      return super.getNodeIdentity();
+    }
+
+    @Override
+    public String className() {
+      return this.getClass().getName();
+    }
+
+    @Override
+    public String projectName() {
+      return getChange().project;
+    }
+
+    @Override
+    public void setStreamEventReplicated(boolean replicated) {
+      hasBeenReplicated = replicated;
+    }
+
+    @Override
+    public boolean replicationSuccessful() {
+      return hasBeenReplicated;
+    }
+
+    @Override
+    public String toString() {
+      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
+              .add("reviewer=" + reviewer)
+              .add("approvals=" + approvals)
+              .add("oldApprovals=" + oldApprovals)
+              .add("message='" + message + "'")
+              .add("hasBeenReplicated=" + super.hasBeenReplicated)
+              .add("eventTimestamp=" + getEventTimestamp())
+              .add("eventNanoTime=" + getEventNanoTime())
+              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
+              .toString();
     }
   }
 }

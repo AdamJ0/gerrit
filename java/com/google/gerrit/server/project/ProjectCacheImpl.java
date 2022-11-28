@@ -24,6 +24,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Sets;
 import com.google.common.flogger.FluentLogger;
+import com.google.gerrit.extensions.api.changes.NotifyHandling;
+import com.google.gerrit.extensions.events.NewProjectCreatedListener;
 import com.google.gerrit.index.project.ProjectIndexer;
 import com.google.gerrit.lifecycle.LifecycleModule;
 import com.google.gerrit.reviewdb.client.AccountGroup;
@@ -44,12 +46,16 @@ import com.google.inject.TypeLiteral;
 import com.google.inject.name.Named;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.lib.Repository;
 
@@ -147,12 +153,13 @@ public class ProjectCacheImpl implements ProjectCache {
    * Calls the replicateMethodCallFromCache in getReplicatedOutgoingCacheEventsFeed from the replicated coordinator.
    * @param cacheName : Name of the cache
    * @param methodName : Method call to replicate
-   * @param key : name of the project
+   * @param projectName : Project name key argument that the method takes. This could be a String or Project.NameKey
+   * @param otherMethodArgs : Any other arguments that the method takes.
    */
-  private void replicateMethodCallFromCache(final String cacheName, final String methodName, final Object key) {
+  private void replicateMethodCallFromCache(final String cacheName, final String methodName, final Object projectName, final List<Object> otherMethodArgs) {
     if(replicatedEventsCoordinator.isReplicationEnabled()) {
       replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed()
-          .replicateMethodCallFromCache(cacheName, methodName, key);
+          .replicateMethodCallFromCache(cacheName, methodName, projectName, otherMethodArgs);
     }
   }
 
@@ -275,7 +282,7 @@ public class ProjectCacheImpl implements ProjectCache {
       if ( replicationEnabled ) {
         // this call is being replicated to the other nodes, but we do not want this further replicated on
         // the other nodes so this is sent with method 'removeNoRepl'
-        replicateMethodCallFromCache(projectCache, "removeNoRepl", name);
+        replicateMethodCallFromCache(projectCache, "removeNoRepl", name, null);
         //Replicated delete from the project index
         replicatedEventsCoordinator.getProjectIndexer().deleteIndex(name);
       }
@@ -305,11 +312,11 @@ public class ProjectCacheImpl implements ProjectCache {
    * @throws IOException
    */
   @Override
-  public void onCreateProject(Project.NameKey newProjectName) throws IOException {
+  public void onCreateProject(Project.NameKey newProjectName, final String head) throws IOException {
 
     // we allow replication to be enabled as an override setting, to pick this up for default
     // behaviour
-    onCreateProjectImpl(newProjectName, replicatedEventsCoordinator.isReplicationEnabled());
+    onCreateProjectImpl(newProjectName, head, replicatedEventsCoordinator.isReplicationEnabled());
   }
 
   /**
@@ -320,11 +327,11 @@ public class ProjectCacheImpl implements ProjectCache {
    * @param newProjectName
    * @throws IOException
    */
-  public void onCreateProjectNoReplication(Project.NameKey newProjectName) throws IOException {
-    onCreateProjectImpl(newProjectName, false);
+  public void onCreateProjectNoReplication(Project.NameKey newProjectName, String head) throws IOException {
+    onCreateProjectImpl(newProjectName, head, false);
   }
 
-  private void onCreateProjectImpl(Project.NameKey newProjectName, boolean replicationEnabled) throws IOException {
+  private void onCreateProjectImpl(Project.NameKey newProjectName, String head, boolean replicationEnabled) throws IOException {
     listLock.lock();
     try {
       list.put(
@@ -335,7 +342,7 @@ public class ProjectCacheImpl implements ProjectCache {
       if ( replicationEnabled ) {
         // this call is being replicated to the other nodes, but we do not want this further replicated on
         // the other nodes so this is sent with method 'onCreateProjectNoReplication'
-        replicateMethodCallFromCache(projectCache, "onCreateProjectNoReplication", newProjectName);
+        replicateMethodCallFromCache(projectCache, "onCreateProjectNoReplication", newProjectName, Arrays.asList(head));
 
       }
     } catch (ExecutionException e) {
@@ -348,7 +355,15 @@ public class ProjectCacheImpl implements ProjectCache {
     // this allows that to occur and update index locally without sending another global index event.
     // We must still index in NON replicated testing setup. This does not happen in the real Daemon.
     replicatedEventsCoordinator.getProjectIndexer().indexNoRepl(newProjectName);
+
+    // Here we are raising a stream event, not a server event, this is to support firing off this kind
+    // of event so that the hooks plugin can fire.
+    if(replicatedEventsCoordinator.isReplicationEnabled()) {
+      replicatedEventsCoordinator.getEventBroker().postNewProjectEvent(new Event(newProjectName, head, replicatedEventsCoordinator));
+    }
+
   }
+
 
   @Override
   public ImmutableSortedSet<Project.NameKey> all() {
@@ -449,5 +464,71 @@ public class ProjectCacheImpl implements ProjectCache {
   @VisibleForTesting
   public long sizeAllByName() {
     return byName.size();
+  }
+
+  static class Event extends ReplicatedEvent implements NewProjectCreatedListener.Event{
+
+    private final Project.NameKey name;
+    private final String head;
+
+    private boolean hasBeenReplicated = false;
+
+    Event(Project.NameKey name, String head, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
+      super(replicatedEventsCoordinator.getThisNodeIdentity());
+      this.name = name;
+      this.head = head;
+    }
+
+    @Override
+    public String getProjectName() {
+      return name.get();
+    }
+
+    @Override
+    public String getHeadName() {
+      return head;
+    }
+
+    @Override
+    public String nodeIdentity() {
+      return super.getNodeIdentity();
+    }
+
+    @Override
+    public String className() {
+      return this.getClass().getName();
+    }
+
+    @Override
+    public String projectName() {
+      return getProjectName();
+    }
+
+    @Override
+    public NotifyHandling getNotify() {
+      return NotifyHandling.NONE;
+    }
+
+    @Override
+    public void setStreamEventReplicated(boolean replicated) {
+      hasBeenReplicated = replicated;
+    }
+
+    @Override
+    public boolean replicationSuccessful() {
+      return hasBeenReplicated;
+    }
+
+    @Override
+    public String toString() {
+      return new StringJoiner(", ", NewProjectCreatedListener.Event.class.getSimpleName() + "[", "]")
+              .add("name=" + name)
+              .add("head='" + head + "'")
+              .add("hasBeenReplicated=" + hasBeenReplicated)
+              .add("eventTimestamp=" + getEventTimestamp())
+              .add("eventNanoTime=" + getEventNanoTime())
+              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
+              .toString();
+    }
   }
 }

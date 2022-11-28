@@ -20,7 +20,7 @@ import java.util.Collection;
 /** Notified whenever a Change's Hashtags are edited. */
 @ExtensionPoint
 public interface HashtagsEditedListener {
-  interface Event extends ChangeEvent {
+  interface Event extends ChangeEvent, ReplicatedStreamEvent {
     Collection<String> getHashtags();
 
     Collection<String> getAddedHashtags();

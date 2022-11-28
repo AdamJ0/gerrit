@@ -34,6 +34,7 @@ import com.google.gerrit.extensions.events.GitReferenceUpdatedListener;
 import com.google.gerrit.extensions.events.HashtagsEditedListener;
 import com.google.gerrit.extensions.events.NewProjectCreatedListener;
 import com.google.gerrit.extensions.events.PrivateStateChangedListener;
+import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.extensions.events.ReviewerAddedListener;
 import com.google.gerrit.extensions.events.ReviewerDeletedListener;
 import com.google.gerrit.extensions.events.RevisionCreatedListener;
@@ -51,12 +52,12 @@ import com.google.gerrit.server.data.AccountAttribute;
 import com.google.gerrit.server.data.ApprovalAttribute;
 import com.google.gerrit.server.data.ChangeAttribute;
 import com.google.gerrit.server.data.PatchSetAttribute;
-import com.google.gerrit.server.data.RefUpdateAttribute;
 import com.google.gerrit.server.git.GitRepositoryManager;
 import com.google.gerrit.server.notedb.ChangeNotes;
 import com.google.gerrit.server.plugincontext.PluginItemContext;
 import com.google.gerrit.server.project.NoSuchChangeException;
 import com.google.gerrit.server.project.ProjectCache;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.AbstractModule;
 import com.google.inject.Inject;
@@ -67,6 +68,8 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+
+import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -124,15 +127,20 @@ public class StreamEventsApiListener
   private final PatchSetUtil psUtil;
   private final ChangeNotes.Factory changeNotesFactory;
 
+  private ReplicatedEventsCoordinator replicatedEventsCoordinator;
+
+  private final String localNodeId;
+
   @Inject
   StreamEventsApiListener(
-      PluginItemContext<EventDispatcher> dispatcher,
-      Provider<ReviewDb> db,
-      EventFactory eventFactory,
-      ProjectCache projectCache,
-      GitRepositoryManager repoManager,
-      PatchSetUtil psUtil,
-      ChangeNotes.Factory changeNotesFactory) {
+          PluginItemContext<EventDispatcher> dispatcher,
+          Provider<ReviewDb> db,
+          EventFactory eventFactory,
+          ProjectCache projectCache,
+          GitRepositoryManager repoManager,
+          PatchSetUtil psUtil,
+          ChangeNotes.Factory changeNotesFactory,
+          ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     this.dispatcher = dispatcher;
     this.db = db;
     this.eventFactory = eventFactory;
@@ -140,6 +148,8 @@ public class StreamEventsApiListener
     this.repoManager = repoManager;
     this.psUtil = psUtil;
     this.changeNotesFactory = changeNotesFactory;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
+    this.localNodeId = replicatedEventsCoordinator.getThisNodeIdentity();
   }
 
   private ChangeNotes getNotes(ChangeInfo info) throws OrmException {
@@ -156,40 +166,27 @@ public class StreamEventsApiListener
 
   private Supplier<ChangeAttribute> changeAttributeSupplier(Change change, ChangeNotes notes) {
     return Suppliers.memoize(
-        new Supplier<ChangeAttribute>() {
-          @Override
-          public ChangeAttribute get() {
-            return eventFactory.asChangeAttribute(change, notes);
-          }
-        });
+            () -> eventFactory.asChangeAttribute(change, notes));
   }
 
   private Supplier<AccountAttribute> accountAttributeSupplier(AccountInfo account) {
     return Suppliers.memoize(
-        new Supplier<AccountAttribute>() {
-          @Override
-          public AccountAttribute get() {
-            return account != null
+            () -> account != null
                 ? eventFactory.asAccountAttribute(new Account.Id(account._accountId))
-                : null;
-          }
-        });
+                : null);
   }
 
   private Supplier<PatchSetAttribute> patchSetAttributeSupplier(
       final Change change, PatchSet patchSet) {
     return Suppliers.memoize(
-        new Supplier<PatchSetAttribute>() {
-          @Override
-          public PatchSetAttribute get() {
-            try (Repository repo = repoManager.openRepository(change.getProject());
-                RevWalk revWalk = new RevWalk(repo)) {
-              return eventFactory.asPatchSetAttribute(revWalk, change, patchSet);
-            } catch (IOException e) {
-              throw new RuntimeException(e);
-            }
-          }
-        });
+            () -> {
+              try (Repository repo = repoManager.openRepository(change.getProject());
+                  RevWalk revWalk = new RevWalk(repo)) {
+                return eventFactory.asPatchSetAttribute(revWalk, change, patchSet);
+              } catch (IOException e) {
+                throw new RuntimeException(e);
+              }
+            });
   }
 
   private static Map<String, Short> convertApprovalsMap(Map<String, ApprovalInfo> approvals) {
@@ -227,22 +224,19 @@ public class StreamEventsApiListener
       final Map<String, ApprovalInfo> oldApprovals) {
     final Map<String, Short> approvals = convertApprovalsMap(newApprovals);
     return Suppliers.memoize(
-        new Supplier<ApprovalAttribute[]>() {
-          @Override
-          public ApprovalAttribute[] get() {
-            LabelTypes labelTypes = projectCache.get(change.getProject()).getLabelTypes();
-            if (approvals.size() > 0) {
-              ApprovalAttribute[] r = new ApprovalAttribute[approvals.size()];
-              int i = 0;
-              for (Map.Entry<String, Short> approval : approvals.entrySet()) {
-                r[i++] =
-                    getApprovalAttribute(labelTypes, approval, convertApprovalsMap(oldApprovals));
+            () -> {
+              LabelTypes labelTypes = projectCache.get(change.getProject()).getLabelTypes();
+              if (approvals.size() > 0) {
+                ApprovalAttribute[] r = new ApprovalAttribute[approvals.size()];
+                int i = 0;
+                for (Entry<String, Short> approval : approvals.entrySet()) {
+                  r[i++] =
+                      getApprovalAttribute(labelTypes, approval, convertApprovalsMap(oldApprovals));
+                }
+                return r;
               }
-              return r;
-            }
-            return null;
-          }
-        });
+              return null;
+            });
   }
 
   String[] hashtagArray(Collection<String> hashtags) {
@@ -257,7 +251,8 @@ public class StreamEventsApiListener
     try {
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
-      AssigneeChangedEvent event = new AssigneeChangedEvent(change);
+      AssigneeChangedEvent event =
+              (AssigneeChangedEvent) setNodeIdOnServerEvent(new AssigneeChangedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.changer = accountAttributeSupplier(ev.getWho());
@@ -274,7 +269,8 @@ public class StreamEventsApiListener
     try {
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
-      TopicChangedEvent event = new TopicChangedEvent(change);
+      TopicChangedEvent event =
+              (TopicChangedEvent) setNodeIdOnServerEvent(new TopicChangedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.changer = accountAttributeSupplier(ev.getWho());
@@ -292,7 +288,8 @@ public class StreamEventsApiListener
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
       PatchSet patchSet = getPatchSet(notes, ev.getRevision());
-      PatchSetCreatedEvent event = new PatchSetCreatedEvent(change);
+      PatchSetCreatedEvent event =
+              (PatchSetCreatedEvent) setNodeIdOnServerEvent(new PatchSetCreatedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.patchSet = patchSetAttributeSupplier(change, patchSet);
@@ -309,7 +306,9 @@ public class StreamEventsApiListener
     try {
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
-      ReviewerDeletedEvent event = new ReviewerDeletedEvent(change);
+      ReviewerDeletedEvent event =
+              (ReviewerDeletedEvent) setNodeIdOnServerEvent(new ReviewerDeletedEvent(change), ev);
+
       event.change = changeAttributeSupplier(change, notes);
       event.patchSet = patchSetAttributeSupplier(change, psUtil.current(db.get(), notes));
       event.reviewer = accountAttributeSupplier(ev.getReviewer());
@@ -329,7 +328,8 @@ public class StreamEventsApiListener
     try {
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
-      ReviewerAddedEvent event = new ReviewerAddedEvent(change);
+      ReviewerAddedEvent event =
+              (ReviewerAddedEvent) setNodeIdOnServerEvent(new ReviewerAddedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.patchSet = patchSetAttributeSupplier(change, psUtil.current(db.get(), notes));
@@ -344,7 +344,10 @@ public class StreamEventsApiListener
 
   @Override
   public void onNewProjectCreated(NewProjectCreatedListener.Event ev) {
-    ProjectCreatedEvent event = new ProjectCreatedEvent();
+
+    ProjectCreatedEvent event =
+            (ProjectCreatedEvent) setNodeIdOnServerEvent(new ProjectCreatedEvent(), ev);
+
     event.projectName = ev.getProjectName();
     event.headName = ev.getHeadName();
 
@@ -356,7 +359,8 @@ public class StreamEventsApiListener
     try {
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
-      HashtagsChangedEvent event = new HashtagsChangedEvent(change);
+      HashtagsChangedEvent event =
+              (HashtagsChangedEvent) setNodeIdOnServerEvent(new HashtagsChangedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.editor = accountAttributeSupplier(ev.getWho());
@@ -372,22 +376,23 @@ public class StreamEventsApiListener
 
   @Override
   public void onGitReferenceUpdated(GitReferenceUpdatedListener.Event ev) {
-    RefUpdatedEvent event = new RefUpdatedEvent();
+    RefUpdatedEvent event =
+            (RefUpdatedEvent) setNodeIdOnServerEvent(new RefUpdatedEvent(), ev);
+
+    // We do not need to manually reindex here as the impls of onGitReferenceUpdated
+    // perform reindexing actions for us. Namely, ReindexAfterRefUpdate provides an
+    // impl of onGitReferenceUpdated, and it performs reindexing.
+
     if (ev.getUpdater() != null) {
       event.submitter = accountAttributeSupplier(ev.getUpdater());
     }
     final Branch.NameKey refName = new Branch.NameKey(ev.getProjectName(), ev.getRefName());
     event.refUpdate =
         Suppliers.memoize(
-            new Supplier<RefUpdateAttribute>() {
-              @Override
-              public RefUpdateAttribute get() {
-                return eventFactory.asRefUpdateAttribute(
+                () -> eventFactory.asRefUpdateAttribute(
                     ObjectId.fromString(ev.getOldObjectId()),
                     ObjectId.fromString(ev.getNewObjectId()),
-                    refName);
-              }
-            });
+                    refName));
     dispatcher.run(d -> d.postEvent(refName, event));
   }
 
@@ -397,7 +402,8 @@ public class StreamEventsApiListener
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
       PatchSet ps = getPatchSet(notes, ev.getRevision());
-      CommentAddedEvent event = new CommentAddedEvent(change);
+      CommentAddedEvent event =
+              (CommentAddedEvent) setNodeIdOnServerEvent(new CommentAddedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.author = accountAttributeSupplier(ev.getWho());
@@ -416,7 +422,8 @@ public class StreamEventsApiListener
     try {
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
-      ChangeRestoredEvent event = new ChangeRestoredEvent(change);
+      ChangeRestoredEvent event =
+              (ChangeRestoredEvent) setNodeIdOnServerEvent(new ChangeRestoredEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.restorer = accountAttributeSupplier(ev.getWho());
@@ -434,7 +441,8 @@ public class StreamEventsApiListener
     try {
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
-      ChangeMergedEvent event = new ChangeMergedEvent(change);
+      ChangeMergedEvent event =
+              (ChangeMergedEvent) setNodeIdOnServerEvent(new ChangeMergedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.submitter = accountAttributeSupplier(ev.getWho());
@@ -452,7 +460,8 @@ public class StreamEventsApiListener
     try {
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
-      ChangeAbandonedEvent event = new ChangeAbandonedEvent(change);
+      ChangeAbandonedEvent event =
+              (ChangeAbandonedEvent) setNodeIdOnServerEvent(new ChangeAbandonedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.abandoner = accountAttributeSupplier(ev.getWho());
@@ -471,7 +480,8 @@ public class StreamEventsApiListener
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
       PatchSet patchSet = getPatchSet(notes, ev.getRevision());
-      WorkInProgressStateChangedEvent event = new WorkInProgressStateChangedEvent(change);
+      WorkInProgressStateChangedEvent event =
+              (WorkInProgressStateChangedEvent) setNodeIdOnServerEvent(new WorkInProgressStateChangedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.changer = accountAttributeSupplier(ev.getWho());
@@ -489,7 +499,8 @@ public class StreamEventsApiListener
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
       PatchSet patchSet = getPatchSet(notes, ev.getRevision());
-      PrivateStateChangedEvent event = new PrivateStateChangedEvent(change);
+      PrivateStateChangedEvent event =
+              (PrivateStateChangedEvent) setNodeIdOnServerEvent(new PrivateStateChangedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.changer = accountAttributeSupplier(ev.getWho());
@@ -506,7 +517,8 @@ public class StreamEventsApiListener
     try {
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
-      VoteDeletedEvent event = new VoteDeletedEvent(change);
+      VoteDeletedEvent event =
+              (VoteDeletedEvent) setNodeIdOnServerEvent(new VoteDeletedEvent(change), ev);
 
       event.change = changeAttributeSupplier(change, notes);
       event.patchSet = patchSetAttributeSupplier(change, psUtil.current(db.get(), notes));
@@ -524,10 +536,11 @@ public class StreamEventsApiListener
   @Override
   public void onChangeDeleted(ChangeDeletedListener.Event ev) {
     try {
+
       ChangeNotes notes = getNotes(ev.getChange());
       Change change = notes.getChange();
-      ChangeDeletedEvent event = new ChangeDeletedEvent(change);
-
+      ChangeDeletedEvent event =
+              (ChangeDeletedEvent) setNodeIdOnServerEvent(new ChangeDeletedEvent(change), ev);
       event.change = changeAttributeSupplier(change, notes);
       event.deleter = accountAttributeSupplier(ev.getWho());
 
@@ -536,4 +549,13 @@ public class StreamEventsApiListener
       logger.atSevere().withCause(e).log("Failed to dispatch event");
     }
   }
+
+
+  private ReplicatedEvent setNodeIdOnServerEvent(ReplicatedEvent serverEvent, ReplicatedStreamEvent streamEvent) {
+    if (replicatedEventsCoordinator.getReplicatedConfiguration().isReplicationEnabled()) {
+      serverEvent.setNodeIdentity(streamEvent.nodeIdentity());
+    }
+    return serverEvent;
+  }
+
 }

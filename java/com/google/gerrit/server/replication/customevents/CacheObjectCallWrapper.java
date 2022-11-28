@@ -14,6 +14,7 @@
 package com.google.gerrit.server.replication.customevents;
 
 
+import java.util.List;
 /**
  * This is a wrapper for the cache method call to be replicated,
  * so that it's easier to rebuild the "original" on the landing
@@ -23,9 +24,13 @@ package com.google.gerrit.server.replication.customevents;
 public class CacheObjectCallWrapper extends CacheKeyWrapper {
   public String methodName;
 
-  public CacheObjectCallWrapper(String cacheName, String method, Object key, String thisNodeIdentity) {
+  // Methods in the cache classes can now support having more than one method argument passed.
+  public List<Object> otherMethodArgs;
+
+  public CacheObjectCallWrapper(String cacheName, String method, Object key, List<Object> otherMethodArgs, String thisNodeIdentity) {
     super(cacheName,key, thisNodeIdentity);
     this.methodName = method;
+    this.otherMethodArgs = otherMethodArgs;
   }
 
   @Override public String toString() {

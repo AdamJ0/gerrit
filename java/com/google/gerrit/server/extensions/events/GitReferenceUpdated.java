@@ -17,15 +17,20 @@ package com.google.gerrit.server.extensions.events;
 import com.google.gerrit.extensions.api.changes.NotifyHandling;
 import com.google.gerrit.extensions.common.AccountInfo;
 import com.google.gerrit.extensions.events.GitReferenceUpdatedListener;
+import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.server.account.AccountState;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
 import org.eclipse.jgit.lib.BatchRefUpdate;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.RefUpdate;
 import org.eclipse.jgit.transport.ReceiveCommand;
+
+import java.util.StringJoiner;
 
 @Singleton
 public class GitReferenceUpdated {
@@ -60,15 +65,19 @@ public class GitReferenceUpdated {
   private final PluginSetContext<GitReferenceUpdatedListener> listeners;
   private final EventUtil util;
 
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
+
   @Inject
-  GitReferenceUpdated(PluginSetContext<GitReferenceUpdatedListener> listeners, EventUtil util) {
+  GitReferenceUpdated(PluginSetContext<GitReferenceUpdatedListener> listeners, EventUtil util, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     this.listeners = listeners;
     this.util = util;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   private GitReferenceUpdated() {
     this.listeners = null;
     this.util = null;
+    this.replicatedEventsCoordinator = null;
   }
 
   public void fire(
@@ -149,17 +158,30 @@ public class GitReferenceUpdated {
     }
     ObjectId o = oldObjectId != null ? oldObjectId : ObjectId.zeroId();
     ObjectId n = newObjectId != null ? newObjectId : ObjectId.zeroId();
-    Event event = new Event(project, ref, o.name(), n.name(), type, updater);
+    Event event = new Event(project, ref, o.name(), n.name(), type, updater, replicatedEventsCoordinator.getThisNodeIdentity());
     listeners.runEach(l -> l.onGitReferenceUpdated(event));
   }
 
-  public static class Event implements GitReferenceUpdatedListener.Event {
+  /**
+   * fire stream event off for its respective listeners to pick up.
+   * @param streamEvent GitReferenceUpdatedListener.Event
+   */
+  public void fire(GitReferenceUpdatedListener.Event streamEvent) {
+    if (listeners.isEmpty()) {
+      return;
+    }
+    listeners.runEach(l -> l.onGitReferenceUpdated(streamEvent));
+  }
+
+  @isReplicatedStreamEvent
+  private static class Event extends ReplicatedEvent implements GitReferenceUpdatedListener.Event {
     private final String projectName;
     private final String ref;
     private final String oldObjectId;
     private final String newObjectId;
     private final ReceiveCommand.Type type;
     private final AccountInfo updater;
+    private boolean hasBeenReplicated = false;
 
     Event(
         Project.NameKey project,
@@ -167,7 +189,9 @@ public class GitReferenceUpdated {
         String oldObjectId,
         String newObjectId,
         ReceiveCommand.Type type,
-        AccountInfo updater) {
+        AccountInfo updater,
+        final String nodeIdentity) {
+      super(nodeIdentity);
       this.projectName = project.get();
       this.ref = ref;
       this.oldObjectId = oldObjectId;
@@ -216,16 +240,53 @@ public class GitReferenceUpdated {
       return updater;
     }
 
-    @Override
-    public String toString() {
-      return String.format(
-          "%s[%s,%s: %s -> %s]",
-          getClass().getSimpleName(), projectName, ref, oldObjectId, newObjectId);
-    }
 
     @Override
     public NotifyHandling getNotify() {
       return NotifyHandling.ALL;
     }
+
+    @Override
+    public String nodeIdentity() {
+      return super.getNodeIdentity();
+    }
+
+    @Override
+    public String className() {
+      return this.getClass().getName();
+    }
+
+    @Override
+    public String projectName() {
+      return getProjectName();
+    }
+
+    @Override
+    public void setStreamEventReplicated(boolean replicated) {
+        hasBeenReplicated = replicated;
+    }
+
+    @Override
+    public boolean replicationSuccessful() {
+      return hasBeenReplicated;
+    }
+
+
+    @Override
+    public String toString() {
+      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
+              .add("projectName='" + projectName + "'")
+              .add("ref='" + ref + "'")
+              .add("oldObjectId='" + oldObjectId + "'")
+              .add("newObjectId='" + newObjectId + "'")
+              .add("type=" + type)
+              .add("updater=" + updater)
+              .add("hasBeenReplicated=" + hasBeenReplicated)
+              .add("eventTimestamp=" + getEventTimestamp())
+              .add("eventNanoTime=" + getEventNanoTime())
+              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
+              .toString();
+    }
+
   }
 }

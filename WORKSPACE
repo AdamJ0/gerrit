@@ -754,6 +754,12 @@ maven_jar(
 )
 
 maven_jar(
+    name = "reflections",
+    artifact = "org.reflections:reflections:0.9.11",
+    sha1 = "4c686033d918ec1727e329b7222fcb020152e32b",
+)
+
+maven_jar(
     name = "cafeteria",
     artifact = "com.googlecode.prolog-cafe:prolog-cafeteria:" + PROLOG_VERS,
     attach_source = False,
@@ -1090,7 +1096,7 @@ maven_jar(
     name = "gerrit-gitms-interface",
     artifact = "com.wandisco:gerrit-gitms-interface:" + _GERRIT_GITMS_VERSION,
     repository = WANDISCO_ASSETS,
-    #sha1 = "deca1013bf5ecc947b658bb2b6e4c5abb936e3d9",
+    sha1 = "17f5e69c6e8778fe25a08e470403fdcc0a1188e1",
 )
 
 load("//tools/bzl:js.bzl", "bower_archive", "npm_binary")

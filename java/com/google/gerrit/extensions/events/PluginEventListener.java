@@ -16,7 +16,7 @@ package com.google.gerrit.extensions.events;
 
 /** Notified when a plugin fires an event. */
 public interface PluginEventListener {
-  interface Event extends GerritEvent {
+  interface Event extends GerritEvent, ReplicatedStreamEvent {
     String pluginName();
 
     String getType();

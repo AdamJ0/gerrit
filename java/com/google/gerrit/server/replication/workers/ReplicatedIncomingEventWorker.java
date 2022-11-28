@@ -373,7 +373,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
 
         switch(originalEvent.getEventOrigin()){
           case INDEX_EVENT:
-          case GERRIT_EVENT:
+          case REPLICATED_STREAM_EVENT:
           case CACHE_EVENT:
           case ACCOUNT_USER_INDEX_EVENT:
           case ACCOUNT_GROUP_INDEX_EVENT :

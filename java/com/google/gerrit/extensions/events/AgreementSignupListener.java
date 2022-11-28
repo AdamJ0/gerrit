@@ -20,7 +20,7 @@ import com.google.gerrit.extensions.common.AccountInfo;
 /** Notified whenever a user signed up for a Contributor License Agreement. */
 @ExtensionPoint
 public interface AgreementSignupListener {
-  interface Event extends GerritEvent {
+  interface Event extends GerritEvent, ReplicatedStreamEvent {
     AccountInfo getAccount();
 
     String getAgreementName();

@@ -31,6 +31,7 @@ import com.google.common.base.Supplier;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.server.data.AccountAttribute;
 
+@isReplicatedServerEvent
 public class ChangeDeletedEvent extends ChangeEvent {
   public static final String TYPE = "change-deleted";
   public Supplier<AccountAttribute> deleter;

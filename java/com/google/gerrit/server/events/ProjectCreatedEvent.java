@@ -29,6 +29,7 @@ package com.google.gerrit.server.events;
 
 import com.google.gerrit.reviewdb.client.Project;
 
+@isReplicatedServerEvent
 public class ProjectCreatedEvent extends ProjectEvent {
   static final String TYPE = "project-created";
   public String projectName;

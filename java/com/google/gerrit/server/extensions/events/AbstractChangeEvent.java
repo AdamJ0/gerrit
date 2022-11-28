@@ -18,16 +18,21 @@ import com.google.gerrit.extensions.api.changes.NotifyHandling;
 import com.google.gerrit.extensions.common.AccountInfo;
 import com.google.gerrit.extensions.common.ChangeInfo;
 import com.google.gerrit.extensions.events.ChangeEvent;
+import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
+
 import java.sql.Timestamp;
 
-public abstract class AbstractChangeEvent implements ChangeEvent {
+public abstract class AbstractChangeEvent extends ReplicatedEvent implements ChangeEvent {
   private final ChangeInfo changeInfo;
   private final AccountInfo who;
   private final Timestamp when;
   private final NotifyHandling notify;
 
+  protected boolean hasBeenReplicated;
+
   protected AbstractChangeEvent(
-      ChangeInfo change, AccountInfo who, Timestamp when, NotifyHandling notify) {
+      ChangeInfo change, AccountInfo who, Timestamp when, NotifyHandling notify, String nodeIdentity) {
+    super(nodeIdentity);
     this.changeInfo = change;
     this.who = who;
     this.when = when;

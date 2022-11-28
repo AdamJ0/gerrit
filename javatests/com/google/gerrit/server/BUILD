@@ -78,5 +78,6 @@ junit_tests(
         "//lib/truth:truth-proto-extension",
         "//proto:cache_java_proto",
         "@gerrit-gitms-interface//jar",
+        "@reflections//jar"
     ],
 )

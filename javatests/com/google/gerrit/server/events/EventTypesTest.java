@@ -15,20 +15,28 @@
 package com.google.gerrit.server.events;
 
 import static com.google.common.truth.Truth.assertThat;
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
 
 import com.google.common.base.Strings;
+import com.google.gerrit.server.extensions.events.AbstractChangeEvent;
+import com.google.gerrit.server.extensions.events.AbstractNoNotifyEvent;
+import com.google.gerrit.server.extensions.events.AbstractRevisionEvent;
+import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
+import com.google.gerrit.server.extensions.events.isReplicatedStreamEvent;
 import org.junit.Test;
+import org.reflections.Reflections;
+import org.reflections.scanners.MemberUsageScanner;
+import org.reflections.scanners.SubTypesScanner;
+import org.reflections.scanners.TypeAnnotationsScanner;
+import org.reflections.util.ClasspathHelper;
+import org.reflections.util.ConfigurationBuilder;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,9 +44,16 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import static org.reflections.ReflectionUtils.getAllFields;
 public class EventTypesTest {
 
-  private static final String KNOWN_EVENTS_FILE="known_event_types.txt";
+  //This is a constant and must not be changed as it tracked the known event classes from 2.13
+  private static final List<Class<? extends Event>> knownEventClasses = new ArrayList<>(Arrays.asList(
+          ChangeAbandonedEvent.class, ChangeMergedEvent.class, ChangeRestoredEvent.class, CommentAddedEvent.class,
+          CommitReceivedEvent.class, HashtagsChangedEvent.class, PatchSetCreatedEvent.class,
+          ProjectCreatedEvent.class, RefReceivedEvent.class,
+          RefUpdatedEvent.class, ReviewerAddedEvent.class, ReviewerDeletedEvent.class,
+          TopicChangedEvent.class));
 
   public static class TestEvent extends Event {
     private static final String TYPE = "test-event";
@@ -86,16 +101,15 @@ public class EventTypesTest {
   }
 
 
+  /**
+   * This test looks at all server events in the package gerrit.server.events and
+   * cross-checks them against a list of known event types for 2.13 + 2.16. Then it checks
+   * whether those event types are all correctly registered in EventTypes class. Finally, it checks
+   * whether each of those server events are correctly annotated with @isReplicatedServerEvent.
+   * @throws Exception
+   */
   @Test
-  public void testKnownChangeEvents() throws Exception {
-    //These events are present in gerrit 2.13 and gerrit 2.16
-    List<Class<? extends Event>> knownEventClasses = new ArrayList<>(Arrays.asList(
-        ChangeAbandonedEvent.class, ChangeMergedEvent.class, ChangeRestoredEvent.class, CommentAddedEvent.class,
-        CommitReceivedEvent.class, HashtagsChangedEvent.class, PatchSetCreatedEvent.class,
-        ProjectCreatedEvent.class, RefReceivedEvent.class,
-        RefUpdatedEvent.class, ReviewerAddedEvent.class, ReviewerDeletedEvent.class,
-        TopicChangedEvent.class));
-
+  public void test_CheckForAnyNewOrMissingServerEvents() throws Exception {
     //new events as of gerrit 2.16
     List<Class<? extends Event>> knownGerrit216EventClasses = new ArrayList<>(Arrays.asList(
         VoteDeletedEvent.class, WorkInProgressStateChangedEvent.class,
@@ -105,68 +119,294 @@ public class EventTypesTest {
     //Getting the events we actually support and compare them.
     //When the EventTypes class loads, there is a static initializer that
     //registers the events. It is these registered events that we want to compare against.
-    List<String> eventTypesInCurrentVersion = convertList(getAllEventClasses(), Class::toString);
-    List<String> knownEventTypes = getListFromResource(KNOWN_EVENTS_FILE);
+    Reflections serverEventReflections = getReflectionsForPackage("com.google.gerrit.server.events");
+    // Build a set of all subTypes of AbstractChangeEvent
+    Set<Class<?>> serverEventTypes = getAllServerEventTypes();
 
-    List<String> KnownIn213 = convertList(knownEventClasses, Class::toString);
-    List<String> knownAddedIn216 = convertList(knownGerrit216EventClasses, Class::toString);
+    Set<Class<?>> isReplicatedServerEventType =
+            serverEventReflections.getTypesAnnotatedWith(isReplicatedServerEvent.class);
 
-    List<String> combinedKnown = Stream.of(KnownIn213, knownAddedIn216)
-        .flatMap(Collection::stream).collect(Collectors.toList());
+    Set<String> KnownIn213 = convertList(knownEventClasses, Class::getName);
+    Set<String> knownAddedIn216 = convertList(knownGerrit216EventClasses, Class::getName);
 
-    //Need to make sure that the events file contains the hard coded
-    //events here. This is just a precautionary step in case the known
-    //events file is not kept up to date.
-    assertTrue(knownEventTypes.containsAll(combinedKnown));
+    Set<String> combinedKnown = Stream.of(KnownIn213, knownAddedIn216)
+            .flatMap(Collection::stream).collect(Collectors.toSet());
 
-    checkEventSetDifferences(eventTypesInCurrentVersion, knownEventTypes);
+    // Checking the found server event types against the known list of what was added in 2.13 and
+    // 2.16
+    checkEventSetDifferences(serverEventTypes.stream().map(Class::getName)
+            .collect(Collectors.toSet()), combinedKnown);
+
+    //Checking the found server event types are all registered in the EventTypes static init block
+    Set<String> registeredEventTypesInCurrentVersion = convertList(getAllEventClasses(), Class::toString);
+    assertEquals("The number of found event types does not match the number of event types registered in EventTypes class" +
+            "static init block", serverEventTypes.size(), registeredEventTypesInCurrentVersion.size());
+
+    //Checking if the found server event types all are annotated correctly with @isReplicatedServerEvent
+    assertEquals("There is a mismatch between the number of server events and the number of server events annotated " +
+            "with @isReplicatedServerEvent", serverEventTypes.size(), isReplicatedServerEventType.size());
+
   }
 
 
-  //Finds and returns a list of all event types.
-  private List<Class> getAllEventClasses() throws NoSuchFieldException, IllegalAccessException {
-    EventTypes eventTypes = new EventTypes();
-    Class clazz = eventTypes.getClass();
-    Field field = clazz.getDeclaredField("typesByString");
-    field.setAccessible(true);
-    Map<String, String> refMap = (HashMap<String, String>) field.get(eventTypes);
-    return Arrays.asList(refMap.values().toArray(new Class[0]));
-  }
+  /**
+   * All ReplicatedStreamEvents are annotated with @isReplicatedStreamEvent. If any new events
+   * are added to the extensions/events package then they will not have been annotated and this test should fail.
+   * There are also events that inherit from either AbstractChangeEvent OR AbstractNoNotifyEvent that do not live
+   * in the com.google.gerrit.server.extensions.events package. If any event type is found to inherit from these two
+   * base classes but does not have the @isReplicatedStreamEvent annotation, then the test will also fail.
+   * @throws Exception
+   */
+  @Test
+  public void test_CheckAllStreamEventsAreAnnotated() throws Exception {
 
+    // Using google reflections, get all reflections for the extensions.events package. App Classloader
+    // is required for the configuration.
+    Reflections reflections = getReflectionsForPackage("com.google.gerrit.server.extensions.events");
 
-  // Transforms each object type in the stream using the map function
-  // to convert one type to another.
-  public static <T, U> List<U> convertList(List<T> from, Function<T, U> func) {
-    return from.stream().map(func).collect(Collectors.toList());
+    // It is known that some stream event classes live outside the extensions.events package in the
+    // restapi.project package. Scan this package also, so we can add to our class tally.
+    Reflections restApiReflections = getReflectionsForPackage("com.google.gerrit.server.restapi.project");
+
+    // Build a set of all subTypes of AbstractChangeEvent
+    Set<Class<? extends AbstractChangeEvent>> changeEventTypes =
+            reflections.getSubTypesOf(AbstractChangeEvent.class);
+
+    Set<Class<? extends AbstractChangeEvent>> restApiChangeEventTypes =
+            restApiReflections.getSubTypesOf(AbstractChangeEvent.class);
+
+    //Combining the ChangeEventTypes from the restApi package with the ones found in the extensions package.
+    changeEventTypes.addAll(restApiChangeEventTypes);
+    // AbstractRevisionEvent is a parent type of some event types but is not in itself an event. Removing
+    // so the numbers are not skewed.
+    changeEventTypes.remove(AbstractRevisionEvent.class);
+
+    // Build a set of all subTypes of AbstractNoNotifyEvent
+    Set<Class<? extends AbstractNoNotifyEvent>> noNotifyEventTypes =
+            reflections.getSubTypesOf(AbstractNoNotifyEvent.class);
+
+    Set<Class<? extends AbstractNoNotifyEvent>> restApiNoNotifyEventTypes =
+            restApiReflections.getSubTypesOf(AbstractNoNotifyEvent.class);
+
+    //Combining the NoNotifyEventTypes from the restApi package with the ones found in the extensions package.
+    noNotifyEventTypes.addAll(restApiNoNotifyEventTypes);
+
+    // Combine the two main sets to form a single superset.
+    Set<Class<?>> allTypes = new HashSet<>();
+    allTypes.addAll(changeEventTypes);
+    allTypes.addAll(noNotifyEventTypes);
+    //GitReferenceUpdated does not inherit from AbstractChangeEvent or AbstractNoNotifyEvent. Adding separately.
+    allTypes.add(GitReferenceUpdated.class);
+
+    // Compare the classes contained in the combined set with the set of all
+    // classes annotated with isReplicatedStreamEvent. They should match.
+    Set<Class<?>> isReplicatedStreamEventTypesExtensionPkg =
+            reflections.getTypesAnnotatedWith(isReplicatedStreamEvent.class);
+
+    Set<Class<?>> isReplicatedStreamEventTypesRestApiPkg =
+            restApiReflections.getTypesAnnotatedWith(isReplicatedStreamEvent.class);
+
+    Set<Class<?>> allIsReplicatedStreamEventTypes = new HashSet<>();
+    allIsReplicatedStreamEventTypes.addAll(isReplicatedStreamEventTypesExtensionPkg);
+    allIsReplicatedStreamEventTypes.addAll(isReplicatedStreamEventTypesRestApiPkg);
+
+    assertEquals("The number of classes that inherit from AbstractChangeEvent OR AbstractNotNotifyEvent does not " +
+            "match the number of classes annotated with @isReplicatedStreamEvent", allIsReplicatedStreamEventTypes.size(),
+            allTypes.size());
+    
+    // Finally, looking at all the classes that contain a static inner Event class and making sure that
+    // we have the same number of these classes found across packages vs the number of Event classes we
+    // have annotated with @isReplicatedStreamEvent.
+    Set<Class<?>> classesThatContainStaticEventClass = new HashSet<>();
+    classesThatContainStaticEventClass.addAll(getAllClassesWithStaticEventsInPackage("com.google.gerrit.server.extensions.events"));
+    classesThatContainStaticEventClass.addAll(getAllClassesWithStaticEventsInPackage("com.google.gerrit.server.restapi.project"));
+    classesThatContainStaticEventClass.addAll(getAllClassesWithStaticEventsInPackage("com.google.gerrit.server.git"));
+
+    assertEquals("The number of classes that contain a static inner Event class does not match the number of classes " +
+            "annotated with @isReplicatedStreamEvent", allIsReplicatedStreamEventTypes.size(), classesThatContainStaticEventClass.size());
+
+    // Final check is to make sure that there are no set differences between all the types we know about vs
+    // the types of events that are subclasses of AbstractChangeEvent/AbstractNoNotify event.
+    Set<String> modifiedAllTypes = allTypes.stream().map(Class::getCanonicalName).collect(Collectors.toSet());
+    modifiedAllTypes = modifiedAllTypes.stream().map(c -> c.replace(".Event", "")).collect(Collectors.toSet());
+
+    checkEventSetDifferences(modifiedAllTypes,
+            classesThatContainStaticEventClass.stream().map(Class::getName).collect(Collectors.toSet()));
   }
 
   @Test(expected = AssertionError.class)
   public void testNewEventTypeAdded() throws Exception {
     //Converting event types of Type Class to String here.
-    List<String> eventTypesInCurrentVersion = convertList(getAllEventClasses(), Class::toString);
+    Set<String> registeredEventTypesInCurrentVersion = convertList(getAllEventClasses(), Class::toString);
 
-    eventTypesInCurrentVersion.add("class com.google.gerrit.server.events.BrandNewEvent");
+    registeredEventTypesInCurrentVersion.add("class com.google.gerrit.server.events.BrandNewEvent");
 
-    List<String> knownEventTypes = getListFromResource(KNOWN_EVENTS_FILE);
+    Set<Class<?>> serverEventTypes = getAllServerEventTypes();
 
-    checkEventSetDifferences(eventTypesInCurrentVersion, knownEventTypes);
+    checkEventSetDifferences(registeredEventTypesInCurrentVersion,
+            serverEventTypes.stream().map(Class::getName).collect(Collectors.toSet()));
   }
 
   @Test(expected = AssertionError.class)
   public void testEventTypeRemoved() throws Exception {
     //Converting event types of Type Class to String here.
-    List<String> eventTypesInCurrentVersion = convertList(getAllEventClasses(), Class::toString);
+    Set<String> eventTypesInCurrentVersion = convertList(getAllEventClasses(), Class::toString);
+    Set<Class<?>> serverEventTypes = getAllServerEventTypes();
 
-    List<String> knownEventTypes = getListFromResource(KNOWN_EVENTS_FILE);
-    knownEventTypes.remove("class com.google.gerrit.server.events.ChangeDeletedEvent");
+    serverEventTypes.remove(ChangeDeletedEvent.class);
 
-    checkEventSetDifferences(eventTypesInCurrentVersion, knownEventTypes);
+    checkEventSetDifferences(eventTypesInCurrentVersion,
+            serverEventTypes.stream().map(Class::getName).collect(Collectors.toSet()));
+  }
+
+  /**
+   * This test is to check that we can verify the presence of the skipReplication
+   * annotation on a given event class. SkipTestEvent has been annotated with the
+   * @SkipReplication annotation.
+   */
+  @Test
+  public void testSkipReplicationAnnotationPresent() {
+    try {
+      EventTypes.register(SkipTestEvent.TYPE, SkipTestEvent.class);
+      Class eventClass = EventTypes.getClass(SkipTestEvent.TYPE);
+      if (!eventClass.isAnnotationPresent(SkipReplication.class)) {
+        throw new AssertionError("SkipReplication annotation not found");
+      }
+    }finally {
+      EventTypes.unregister(SkipTestEvent.TYPE);
+    }
   }
 
 
-  // Compares two sets, events in the current version vs events in our known_events_types.txt file
-  // Throws an AssertionError if any differences found with the relevant message.
-  private void checkEventSetDifferences(List<String> eventTypesInCurrentVersion, List<String> knownEventTypes) {
+  /**
+   * Finds all classes in a given package.
+   * @param packageName
+   * @return
+   */
+  public Set<Class<?>> findAllClassesUsingReflectionsLibrary(String packageName) {
+    Reflections reflections = new Reflections(packageName, new SubTypesScanner(false));
+    return new HashSet<>(reflections.getSubTypesOf(Object.class));
+  }
+
+  /**
+   * Looks for static inner classes with the name Event in the classes for the
+   * specified package.
+   * @param packageName
+   * @return
+   */
+  public Set<Class<?>> getAllClassesWithStaticEventsInPackage(String packageName){
+    Map<Class<?>, Class<?>[]> classesWithInnerStaticClass = new HashMap<>();
+
+    Set<Class<?>> allClassesInPackage =
+            findAllClassesUsingReflectionsLibrary(packageName);
+
+    // Get all the classes in the package that have a static inner class
+    for(Class<?> c : allClassesInPackage){
+      if(Arrays.stream(c.getDeclaredClasses()).findAny().isPresent()){
+        if(Arrays.stream(c.getDeclaredClasses()).anyMatch(cls -> cls.getName().contains("Event"))) {
+          classesWithInnerStaticClass.put(c, c.getDeclaredClasses());
+        }
+      }
+    }
+    return classesWithInnerStaticClass.keySet();
+  }
+
+  /**
+   * Specify a package name to get the reflections information for that package.
+   * Using SubTypesScanner to scan all subtypes and TypeAnnotationsScanner to get
+   * all annotations set in the package classes.
+   * @param pkgName
+   * @return
+   */
+  private static Reflections getReflectionsForPackage(String pkgName) {
+    return new Reflections(
+            new ConfigurationBuilder()
+                    .addClassLoaders( ClasspathHelper.contextClassLoader() )
+                    .addUrls(ClasspathHelper.forPackage(pkgName,
+                            ClasspathHelper.contextClassLoader()))
+                    .setScanners(new SubTypesScanner(false), new TypeAnnotationsScanner(), new MemberUsageScanner())
+                    .setExpandSuperTypes(true));
+  }
+
+
+  /**
+   *  Finds and returns a list of all event types contained in the typesByString map within the EventTypes
+   *  class. These event types are registered in the static init block within the EventTypes class.
+   */
+  private List<Class<?>> getAllEventClasses() throws NoSuchFieldException, IllegalAccessException {
+    EventTypes eventTypes = new EventTypes();
+    Class<?> clazz = eventTypes.getClass();
+    Field field = clazz.getDeclaredField("typesByString");
+    field.setAccessible(true);
+    Map<String, String> refMap = (HashMap<String, String>) field.get(eventTypes);
+    return Arrays.asList(refMap.values().toArray(new Class<?>[0]));
+  }
+
+  /**
+   * Transforms each object type in the stream using the map function
+   *  to convert one type to another.
+   * @param from
+   * @param func
+   * @return
+   * @param <T>
+   * @param <U>
+   */
+  public static <T, U> Set<U> convertList(List<T> from, Function<T, U> func) {
+    return from.stream().map(func).collect(Collectors.toSet());
+  }
+
+  /**
+   * A server event will be of type
+   *  - changeEvent
+   *  - refEvent
+   *  - projectEvent
+   *  - patchSetEvent
+   *  A server event must also have a TYPE field denoting what kind of event it is. If it doesn't contain
+   *  this member in its class then it should not be considered a server event. It is most likely a supertype
+   *  or base class.
+   * @return
+   */
+  private static Set<Class<?>> getAllServerEventTypes() {
+    Reflections serverEventReflections = getReflectionsForPackage("com.google.gerrit.server.events");
+
+    // Build a set of all subtypes of the parent types such as changeEvent, refEvent etc.
+    Set<Class<? extends ChangeEvent>> changeEventTypes =
+            serverEventReflections.getSubTypesOf(ChangeEvent.class);
+
+    Set<Class<? extends RefEvent>> refEventTypes =
+            serverEventReflections.getSubTypesOf(RefEvent.class);
+
+    Set<Class<? extends ProjectEvent>> projectEventTypes =
+            serverEventReflections.getSubTypesOf(ProjectEvent.class);
+
+    Set<Class<? extends PatchSetEvent>> patchSetEventTypes =
+            serverEventReflections.getSubTypesOf(PatchSetEvent.class);
+
+    Set<Class<?>> serverEventTypes = new HashSet<>();
+    serverEventTypes.addAll(changeEventTypes);
+    serverEventTypes.addAll(refEventTypes);
+    serverEventTypes.addAll(projectEventTypes);
+    serverEventTypes.addAll(patchSetEventTypes);
+
+    // To be considered a server event, it must have a type and must be a registered type in EventTypes
+    Set<Class<?>> updatedServerEventTypes = serverEventTypes.stream()
+            .filter(cls -> getAllFields(cls, field -> field.getName().matches("TYPE")).size() > 0)
+            .collect(Collectors.toSet());
+
+    //Removing abstract classes. We only want subtypes
+    updatedServerEventTypes.remove(ChangeEvent.class);
+    updatedServerEventTypes.remove(RefEvent.class);
+    updatedServerEventTypes.removeIf(e -> e.getName().contains("TestEvent"));
+    return updatedServerEventTypes;
+  }
+
+  /**
+   * Compares two sets, events in the current version vs events in our known_events_types.txt file
+   * Throws an AssertionError if any differences found with the relevant message.
+   * @param eventTypesInCurrentVersion
+   * @param knownEventTypes
+   */
+  private void checkEventSetDifferences(Set<String> eventTypesInCurrentVersion, Set<String> knownEventTypes) {
     Set<String> oldFilterNew = knownEventTypes.stream()
         .distinct()
         .filter(val -> !eventTypesInCurrentVersion.contains(val))
@@ -191,39 +431,6 @@ public class EventTypesTest {
 
     if(!Strings.isNullOrEmpty(errMsg.toString())){
       throw new AssertionError(errMsg);
-    }
-  }
-
-  //The known_event_types text file in resources / events is read as an
-  // inputStream and each line added to a list and returned.
-  private List<String> getListFromResource(String resource) throws Exception {
-    List<String> eventsList = new ArrayList<>();
-    try (InputStream in = this.getClass().getResourceAsStream(resource)) {
-      if (in == null) {
-        throw new Exception(String.format("%s list not found", resource));
-      }
-      BufferedReader r = new BufferedReader(new InputStreamReader(in, UTF_8));
-      String line;
-      while ((line = r.readLine()) != null) {
-        eventsList.add(line);
-      }
-    }
-    return eventsList;
-  }
-
-  //This test is to check that we can verify the presence of the skipReplication
-  //annotation on a given event class. SkipTestEvent has been annotated with the
-  // @SkipReplication annotation.
-  @Test
-  public void testSkipReplicationAnnotationPresent() {
-    try {
-      EventTypes.register(SkipTestEvent.TYPE, SkipTestEvent.class);
-      Class eventClass = EventTypes.getClass(SkipTestEvent.TYPE);
-      if (!eventClass.isAnnotationPresent(SkipReplication.class)) {
-        throw new AssertionError("SkipReplication annotation not found");
-      }
-    }finally {
-      EventTypes.unregister(SkipTestEvent.TYPE);
     }
   }
 

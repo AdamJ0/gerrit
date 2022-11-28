@@ -271,7 +271,8 @@ public class RefControlTest {
           }
 
           @Override
-          public void onCreateProject(Project.NameKey newProjectName) {
+          public void onCreateProject(Project.NameKey newProjectName, String ref) throws IOException {
+
           }
 
           @Override

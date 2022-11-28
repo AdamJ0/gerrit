@@ -20,6 +20,7 @@ import com.google.gerrit.extensions.api.changes.NotifyHandling;
 import com.google.gerrit.extensions.common.AccountInfo;
 import com.google.gerrit.extensions.common.ChangeInfo;
 import com.google.gerrit.extensions.common.RevisionInfo;
+import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.extensions.events.ReviewerAddedListener;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.reviewdb.client.PatchSet;
@@ -29,12 +30,14 @@ import com.google.gerrit.server.patch.PatchListNotAvailableException;
 import com.google.gerrit.server.patch.PatchListObjectTooLargeException;
 import com.google.gerrit.server.permissions.PermissionBackendException;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import java.io.IOException;
 import java.sql.Timestamp;
 import java.util.List;
+import java.util.StringJoiner;
 
 @Singleton
 public class ReviewerAdded {
@@ -42,11 +45,13 @@ public class ReviewerAdded {
 
   private final PluginSetContext<ReviewerAddedListener> listeners;
   private final EventUtil util;
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
   @Inject
-  ReviewerAdded(PluginSetContext<ReviewerAddedListener> listeners, EventUtil util) {
+  ReviewerAdded(PluginSetContext<ReviewerAddedListener> listeners, EventUtil util, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     this.listeners = listeners;
     this.util = util;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   public void fire(
@@ -66,7 +71,8 @@ public class ReviewerAdded {
               util.revisionInfo(change.getProject(), patchSet),
               Lists.transform(reviewers, util::accountInfo),
               util.accountInfo(adder),
-              when);
+              when,
+              replicatedEventsCoordinator.getThisNodeIdentity());
       listeners.runEach(l -> l.onReviewersAdded(event));
     } catch (PatchListObjectTooLargeException e) {
       logger.atWarning().log("Couldn't fire event: %s", e.getMessage());
@@ -79,6 +85,18 @@ public class ReviewerAdded {
     }
   }
 
+  /**
+   * fire stream event off for its respective listeners to pick up.
+   * @param streamEvent ReviewerAddedListener.Event
+   */
+  public void fire(ReviewerAddedListener.Event streamEvent) {
+    if (listeners.isEmpty()) {
+      return;
+    }
+    listeners.runEach(l -> l.onReviewersAdded(streamEvent));
+  }
+
+  @isReplicatedStreamEvent
   private static class Event extends AbstractRevisionEvent implements ReviewerAddedListener.Event {
     private final List<AccountInfo> reviewers;
 
@@ -87,14 +105,51 @@ public class ReviewerAdded {
         RevisionInfo revision,
         List<AccountInfo> reviewers,
         AccountInfo adder,
-        Timestamp when) {
-      super(change, revision, adder, when, NotifyHandling.ALL);
+        Timestamp when,
+        final String nodeIdentity) {
+      super(change, revision, adder, when, NotifyHandling.ALL, nodeIdentity);
       this.reviewers = reviewers;
     }
 
     @Override
     public List<AccountInfo> getReviewers() {
       return reviewers;
+    }
+
+    @Override
+    public String nodeIdentity() {
+      return super.getNodeIdentity();
+    }
+
+    @Override
+    public String className() {
+      return this.getClass().getName();
+    }
+
+    @Override
+    public String projectName() {
+      return getChange().project;
+    }
+
+    @Override
+    public void setStreamEventReplicated(boolean replicated) {
+      hasBeenReplicated = replicated;
+    }
+
+    @Override
+    public boolean replicationSuccessful() {
+      return hasBeenReplicated;
+    }
+
+    @Override
+    public String toString() {
+      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
+              .add("reviewers=" + reviewers)
+              .add("hasBeenReplicated=" + super.hasBeenReplicated)
+              .add("eventTimestamp=" + getEventTimestamp())
+              .add("eventNanoTime=" + getEventNanoTime())
+              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
+              .toString();
     }
   }
 }

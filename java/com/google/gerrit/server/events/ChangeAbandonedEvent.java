@@ -31,6 +31,7 @@ import com.google.common.base.Supplier;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.server.data.AccountAttribute;
 
+@isReplicatedServerEvent
 public class ChangeAbandonedEvent extends PatchSetEvent {
   static final String TYPE = "change-abandoned";
   public Supplier<AccountAttribute> abandoner;

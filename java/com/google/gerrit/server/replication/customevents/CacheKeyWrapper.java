@@ -30,6 +30,7 @@ public class CacheKeyWrapper extends ReplicatedEvent {
   public Object key;
   public String keyClassName;
   public String keyValue;
+
   public transient boolean replicated = false;
   protected static final Gson gson = new Gson();
 

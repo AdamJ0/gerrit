@@ -32,6 +32,7 @@ import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.server.data.AccountAttribute;
 import com.google.gerrit.server.data.RefUpdateAttribute;
 
+@isReplicatedServerEvent
 public class RefUpdatedEvent extends RefEvent {
   public static final String TYPE = "ref-updated";
   public Supplier<AccountAttribute> submitter;

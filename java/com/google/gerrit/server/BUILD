@@ -57,6 +57,7 @@ java_library(
         "//lib:automaton",
         "//lib:blame-cache",
         "//lib/equalsverifier:equalsverifier",
+        "//lib/reflections:reflections",
         "//lib:flexmark",
         "//lib:flexmark-ext-abbreviation",
         "//lib:flexmark-ext-anchorlink",

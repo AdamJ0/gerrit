@@ -22,7 +22,7 @@ import java.util.List;
 @ExtensionPoint
 public interface UsageDataPublishedListener {
 
-  interface Event {
+  interface Event extends ReplicatedStreamEvent {
     MetaData getMetaData();
 
     Timestamp getInstant();

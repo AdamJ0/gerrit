@@ -1,8 +1,8 @@
 package com.google.gerrit.server.replication;
 
+import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.lifecycle.LifecycleModule;
 import com.google.gerrit.reviewdb.client.Project;
-import com.google.gerrit.server.events.Event;
 import com.google.gerrit.server.replication.customevents.AccountIndexEventBase;
 import com.google.gerrit.server.replication.customevents.CacheKeyWrapper;
 import com.google.gerrit.server.replication.customevents.DeleteProjectChangeEvent;
@@ -21,9 +21,9 @@ import java.io.IOException;
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.CACHE_EVENT;
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.DELETE_PROJECT_EVENT;
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.DELETE_PROJECT_MESSAGE_EVENT;
-import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.GERRIT_EVENT;
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.INDEX_EVENT;
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.PROJECTS_INDEX_EVENT;
+import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.REPLICATED_STREAM_EVENT;
 
 public class GerritEventFactory {
 
@@ -41,7 +41,7 @@ public class GerritEventFactory {
   }
 
   /**
-   * Used only by integration / unit testing to setup the Injected fields that wont be initialized e.g. GSon.
+   * Used only by integration / unit testing to set up the Injected fields that won't be initialized e.g. GSon.
    */
   public static void setupEventWrapper(){
     if ( gson == null ) {
@@ -57,13 +57,19 @@ public class GerritEventFactory {
   @Named("wdGson")
   private static Gson gson;
 
-  public static EventWrapper createReplicatedChangeEvent(Event changeEvent,
-                                                         ReplicatedChangeEventInfo info) throws IOException {
-    String eventString = gson.toJson(changeEvent);
+  /**
+   * We receive stream events and we must wrap these with our EventWrapper also. Stream events are the main
+   * trigger for server events.
+   * @param event
+   * @return
+   * @throws IOException
+   */
+  public static EventWrapper createReplicatedStreamEvent(ReplicatedStreamEvent event) throws IOException {
+    String eventString = gson.toJson(event);
     return new EventWrapper(eventString,
-                            changeEvent.getClass().getName(),
-                            info.getProjectName(),
-                            GERRIT_EVENT);
+            event.className(),
+            event.projectName(),
+            REPLICATED_STREAM_EVENT);
   }
 
   /**

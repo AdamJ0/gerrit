@@ -135,9 +135,14 @@ public class ReplicatedOutgoingCacheEventsFeed extends ReplicatedOutgoingEventsF
     }
   }
 
-  public void replicateMethodCallFromCache(String cacheName, String methodName, Object key) {
-    CacheObjectCallWrapper cacheMethodCall = new CacheObjectCallWrapper(cacheName, methodName, key, replicatedEventsCoordinator.getThisNodeIdentity());
-    logger.atInfo().log("CACHE About to call replicated cache method: %s, %s, %s", cacheName, methodName, key);
+  public void replicateMethodCallFromCache(final String cacheName, final String methodName,
+                                           final Object projectName, final List<Object> otherMethodArgs) {
+
+    CacheObjectCallWrapper cacheMethodCall = new CacheObjectCallWrapper(cacheName, methodName,
+            projectName, otherMethodArgs, replicatedEventsCoordinator.getThisNodeIdentity());
+
+    logger.atInfo().log("CACHE About to call replicated cache method: %s, %s, [ %s, %s ]",
+            cacheName, methodName, projectName, otherMethodArgs);
     try {
       replicatedEventsCoordinator.queueEventForReplication(
           GerritEventFactory.createReplicatedAllProjectsCacheEvent(cacheMethodCall));

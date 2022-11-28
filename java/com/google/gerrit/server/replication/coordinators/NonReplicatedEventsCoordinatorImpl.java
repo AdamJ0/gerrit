@@ -2,8 +2,11 @@ package com.google.gerrit.server.replication.coordinators;
 
 import com.google.common.base.Verify;
 import com.google.gerrit.index.project.ProjectIndexer;
+import com.google.gerrit.server.events.EventBroker;
+import com.google.gerrit.server.replication.streamlistener.ReplicatedStreamEventsApiListener;
 import com.google.gerrit.server.index.group.GroupIndexer;
 import com.google.gerrit.server.notedb.ChangeNotes;
+import com.google.gerrit.server.replication.ReplicatedEventRequestScope;
 import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gerrit.server.replication.ReplicatedScheduling;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingAccountBaseIndexEventsFeed;
@@ -11,7 +14,7 @@ import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingCacheEventsF
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingIndexEventsFeed;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingProjectEventsFeed;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingProjectIndexEventsFeed;
-import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingServerEventsFeed;
+import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingStreamEventsFeed;
 import com.google.gerrit.server.replication.processors.ReplicatedEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingAccountGroupIndexEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingAccountUserIndexEventProcessor;
@@ -19,7 +22,6 @@ import com.google.gerrit.server.replication.processors.ReplicatedIncomingCacheEv
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingIndexEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingProjectEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingProjectIndexEventProcessor;
-import com.google.gerrit.server.replication.processors.ReplicatedIncomingServerEventProcessor;
 import com.google.gerrit.server.replication.workers.ReplicatedIncomingEventWorker;
 import com.google.gerrit.server.replication.workers.ReplicatedOutgoingEventWorker;
 import com.google.gerrit.reviewdb.server.ReviewDb;
@@ -132,6 +134,11 @@ public class NonReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoord
   }
 
   @Override
+  public EventBroker getEventBroker() {
+    throw new UnsupportedOperationException("getEventBroker: Unable to get access to replicated objects when not using replicated entry points.");
+  }
+
+  @Override
   public SchemaFactory<ReviewDb> getSchemaFactory() {
     return schemaFactory.get();
   }
@@ -181,12 +188,6 @@ public class NonReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoord
   }
 
   @Override
-  public ReplicatedIncomingServerEventProcessor getReplicatedIncomingServerEventProcessor() {
-    throw new UnsupportedOperationException("getReplicatedIncomingServerEventProcessor: Unable to get access to replicated objects when not using replicated entry points.");
-
-  }
-
-  @Override
   public ReplicatedIncomingCacheEventProcessor getReplicatedIncomingCacheEventProcessor() {
     throw new UnsupportedOperationException("getReplicatedIncomingCacheEventProcessor: Unable to get access to replicated objects when not using replicated entry points.");
   }
@@ -227,8 +228,8 @@ public class NonReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoord
   }
 
   @Override
-  public ReplicatedOutgoingServerEventsFeed getReplicatedOutgoingServerEventsFeed() {
-    throw new UnsupportedOperationException("getReplicatedOutgoingServerEventsFeed: Unable to get access to replicated objects when not using replicated entry points.");
+  public ReplicatedOutgoingStreamEventsFeed getReplicatedOutgoingStreamEventsFeed() {
+    throw new UnsupportedOperationException("getReplicatedOutgoingStreamEventsFeed: Unable to get access to replicated objects when not using replicated entry points.");
   }
 
   @Override
@@ -253,8 +254,23 @@ public class NonReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoord
   }
 
   @Override
+  public ReplicatedEventRequestScope getReplicatedEventRequestScope() {
+    throw new UnsupportedOperationException("getReplicatedEventRequestScope: Unable to get access to replicated objects when not using replicated entry points.");
+  }
+
+  @Override
+  public ReplicatedStreamEventsApiListener getReplicatedStreamEventsApiListener() {
+    throw new UnsupportedOperationException("getReplicatedStreamEventsApiListener: Unable to get access to replicated objects when not using replicated entry points.");
+  }
+
+  /**
+   * This method can be called during testing, i.e when running the acceptance tests. We cannot
+   * pass a null value for a nodeId so instead we pass a string with a dummy nodeId.
+   * @return
+   */
+  @Override
   public String getThisNodeIdentity() {
-    return getReplicatedConfiguration().getThisNodeIdentity();
+    return "non-replicated-nodeId";
   }
 
 }

@@ -19,13 +19,16 @@ import com.google.gerrit.extensions.api.changes.NotifyHandling;
 import com.google.gerrit.extensions.common.AccountInfo;
 import com.google.gerrit.extensions.common.ChangeInfo;
 import com.google.gerrit.extensions.events.ChangeDeletedListener;
+import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.server.account.AccountState;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
+import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import java.sql.Timestamp;
+import java.util.StringJoiner;
 
 @Singleton
 public class ChangeDeleted {
@@ -33,11 +36,14 @@ public class ChangeDeleted {
 
   private final PluginSetContext<ChangeDeletedListener> listeners;
   private final EventUtil util;
+  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
+
 
   @Inject
-  ChangeDeleted(PluginSetContext<ChangeDeletedListener> listeners, EventUtil util) {
+  ChangeDeleted(PluginSetContext<ChangeDeletedListener> listeners, EventUtil util, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
     this.listeners = listeners;
     this.util = util;
+    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   public void fire(Change change, AccountState deleter, Timestamp when) {
@@ -45,16 +51,65 @@ public class ChangeDeleted {
       return;
     }
     try {
-      Event event = new Event(util.changeInfo(change), util.accountInfo(deleter), when);
+      Event event = new Event(util.changeInfo(change), util.accountInfo(deleter), when, replicatedEventsCoordinator.getThisNodeIdentity());
       listeners.runEach(l -> l.onChangeDeleted(event));
     } catch (OrmException e) {
       logger.atSevere().withCause(e).log("Couldn't fire event");
     }
   }
 
+  /**
+   * fire stream event off for its respective listeners to pick up.
+   * @param streamEvent ChangeDeletedListener.Event
+   */
+  public void fire(ChangeDeletedListener.Event streamEvent) {
+    if (listeners.isEmpty()) {
+      return;
+    }
+    listeners.runEach(l -> l.onChangeDeleted(streamEvent));
+  }
+
+  @isReplicatedStreamEvent
   private static class Event extends AbstractChangeEvent implements ChangeDeletedListener.Event {
-    Event(ChangeInfo change, AccountInfo deleter, Timestamp when) {
-      super(change, deleter, when, NotifyHandling.ALL);
+
+    Event(ChangeInfo change, AccountInfo deleter, Timestamp when, final String nodeIdentity) {
+      super(change, deleter, when, NotifyHandling.ALL, nodeIdentity);
+    }
+
+    @Override
+    public String nodeIdentity() {
+      return super.getNodeIdentity();
+    }
+
+    @Override
+    public String className() {
+      return this.getClass().getName();
+    }
+
+    @Override
+    public String projectName() {
+      return getChange().project;
+    }
+
+    @Override
+    public void setStreamEventReplicated(boolean replicated) {
+      hasBeenReplicated = replicated;
+    }
+
+    @Override
+    public boolean replicationSuccessful() {
+      return hasBeenReplicated;
+    }
+
+
+    @Override
+    public String toString() {
+      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
+              .add("hasBeenReplicated=" + super.hasBeenReplicated)
+              .add("eventTimestamp=" + getEventTimestamp())
+              .add("eventNanoTime=" + getEventNanoTime())
+              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
+              .toString();
     }
   }
 }

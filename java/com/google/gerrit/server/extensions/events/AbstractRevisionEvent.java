@@ -18,10 +18,11 @@ import com.google.gerrit.extensions.api.changes.NotifyHandling;
 import com.google.gerrit.extensions.common.AccountInfo;
 import com.google.gerrit.extensions.common.ChangeInfo;
 import com.google.gerrit.extensions.common.RevisionInfo;
+import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.extensions.events.RevisionEvent;
 import java.sql.Timestamp;
 
-public abstract class AbstractRevisionEvent extends AbstractChangeEvent implements RevisionEvent {
+public abstract class AbstractRevisionEvent extends AbstractChangeEvent implements RevisionEvent, ReplicatedStreamEvent {
 
   private final RevisionInfo revisionInfo;
 
@@ -30,8 +31,9 @@ public abstract class AbstractRevisionEvent extends AbstractChangeEvent implemen
       RevisionInfo revision,
       AccountInfo who,
       Timestamp when,
-      NotifyHandling notify) {
-    super(change, who, when, notify);
+      NotifyHandling notify,
+      String nodeIdentity) {
+    super(change, who, when, notify, nodeIdentity);
     revisionInfo = revision;
   }
 

@@ -31,6 +31,7 @@ import com.google.common.base.Supplier;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.server.data.AccountAttribute;
 
+@isReplicatedServerEvent
 public class ChangeMergedEvent extends PatchSetEvent {
   public static final String TYPE = "change-merged";
   public Supplier<AccountAttribute> submitter;

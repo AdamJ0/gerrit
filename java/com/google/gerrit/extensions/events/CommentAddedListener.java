@@ -21,7 +21,7 @@ import java.util.Map;
 /** Notified whenever a comment is added to a change. */
 @ExtensionPoint
 public interface CommentAddedListener {
-  interface Event extends RevisionEvent {
+  interface Event extends RevisionEvent, ReplicatedStreamEvent {
     String getComment();
 
     Map<String, ApprovalInfo> getApprovals();

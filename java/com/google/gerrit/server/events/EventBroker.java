@@ -15,6 +15,9 @@
 package com.google.gerrit.server.events;
 
 import com.google.common.flogger.FluentLogger;
+import com.google.gerrit.extensions.events.NewProjectCreatedListener;
+import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
+import com.google.gerrit.extensions.events.ReplicatedStreamEventListener;
 import com.google.gerrit.extensions.registration.DynamicItem;
 import com.google.gerrit.extensions.restapi.AuthException;
 import com.google.gerrit.lifecycle.LifecycleModule;
@@ -68,6 +71,10 @@ public class EventBroker implements EventDispatcher {
    * Listeners to receive all changes as they happen.
    */
   protected final PluginSetContext<EventListener> unrestrictedListeners;
+  protected final PluginSetContext<ReplicatedStreamEventListener> replicatedStreamEventListeners;
+
+  protected final PluginSetContext<NewProjectCreatedListener> newProjectCreatedListener;
+
 
   private final PermissionBackend permissionBackend;
   protected final ProjectCache projectCache;
@@ -82,6 +89,8 @@ public class EventBroker implements EventDispatcher {
   public EventBroker(
       PluginSetContext<UserScopedEventListener> listeners,
       PluginSetContext<EventListener> unrestrictedListeners,
+      PluginSetContext<ReplicatedStreamEventListener> replicatedStreamEventListeners,
+      PluginSetContext<NewProjectCreatedListener> newProjectCreatedListener,
       PermissionBackend permissionBackend,
       ProjectCache projectCache,
       ChangeNotes.Factory notesFactory,
@@ -91,6 +100,8 @@ public class EventBroker implements EventDispatcher {
   ) {
     this.listeners = listeners;
     this.unrestrictedListeners = unrestrictedListeners;
+    this.replicatedStreamEventListeners = replicatedStreamEventListeners;
+    this.newProjectCreatedListener = newProjectCreatedListener;
     this.permissionBackend = permissionBackend;
     this.projectCache = projectCache;
     this.notesFactory = notesFactory;
@@ -130,6 +141,31 @@ public class EventBroker implements EventDispatcher {
   @Override
   public void postEvent(Event event) throws OrmException, PermissionBackendException {
     fireEvent(event);
+  }
+
+  @Override
+  public void postEvent(ReplicatedStreamEvent event) {
+    fireEventForReplicatedStreamEventListener(event);
+  }
+
+  public void postNewProjectEvent(NewProjectCreatedListener.Event event){
+    fireEventForNewProjectEventListener(event);
+  }
+
+  /**
+   * Fires the replicated NewProjectEventListener.Events off to each registered replicated NewProjectCreatedListener listener
+   * @param event : NewProjectCreatedListener.Event type
+   */
+  protected void fireEventForNewProjectEventListener(NewProjectCreatedListener.Event event){
+    newProjectCreatedListener.runEach(l -> l.onNewProjectCreated(event));
+  }
+
+  /**
+   * Fires the replicated stream event off to each registered replicated stream event listener
+   * @param streamEvent : ReplicatedStreamEvent event type
+   */
+  protected void fireEventForReplicatedStreamEventListener(ReplicatedStreamEvent streamEvent){
+    replicatedStreamEventListeners.runEach(l -> l.onReplicatedStreamEvent(streamEvent));
   }
 
   protected void fireEventForUnrestrictedListeners(Event event) {
@@ -269,6 +305,16 @@ public class EventBroker implements EventDispatcher {
    */
   public void registerUnrestrictedEventListener(String name, EventListener unrestrictedListener) {
     this.unrestrictedListeners.registerImplementation(name, unrestrictedListener);
+  }
+
+
+  /**
+   * Registers a replicated stream event listener for a given thread or class.
+   * @param name : The name of the thread or class registering the listener
+   * @param replicationListener : The instance of the replicated stream event listener
+   */
+  public void registerReplicatedStreamEventListener(String name, ReplicatedStreamEventListener replicationListener) {
+    this.replicatedStreamEventListeners.registerImplementation(name, replicationListener);
   }
 
 }

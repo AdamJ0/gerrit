@@ -14,9 +14,13 @@ import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.CACHE_EVENT;
 
@@ -70,7 +74,7 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
       CacheObjectCallWrapper originalObj = (CacheObjectCallWrapper) cacheKeyWrapper;
       // Invokes a particular method on a cache. The CacheObjectCallWrapper carries the method
       // to be invoked on the cache. At present, we make only two replicated cache method calls from ProjectCacheImpl.
-      applyMethodCallOnCache(originalObj.cacheName, originalObj.key, originalObj.methodName);
+      applyMethodCallOnCache(originalObj.cacheName, originalObj.key, originalObj.otherMethodArgs, originalObj.methodName);
       return;
     }
 
@@ -110,7 +114,7 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
     }
   }
 
-  private void applyMethodCallOnCache(String cacheName, Object key, String methodName) {
+  private void applyMethodCallOnCache(String cacheName, Object methodArg, List<Object> otherArgs, String methodName) {
     Object obj = cacheObjects.get(cacheName);
     if (obj == null) {
       // Failed to get a cache by the given name - return indicate failure - this wont change.
@@ -119,11 +123,58 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
           String.format("CACHE call could not be made, as cache does not exist. %s", cacheName));
     }
 
+    // Determine if we have a method that has more than one argument for the method signature. The main argument
+    // for the method signature is usually Project.NameKey however methods can now support having other arguments
+    // supplied.
+    List<Object> remainingArgs = new ArrayList<>();
+    if(otherArgs != null){
+      remainingArgs.addAll(otherArgs);
+    }
+
+    // Find out what the class types of the other arguments are supplied to the method. This is required
+    // in order to find the method with the name and matching signature.
+    // Setting a size of 10 although the number of arguments will in reality be much smaller than this.
+    List<Class<?>> remainingArgClassTypes = null;
+
+    if(remainingArgs.size() > 0) {
+      Class<?>[] classTypes = new Class[10];
+      for (int n = 0; n < remainingArgs.size(); n++) {
+        classTypes[n] = remainingArgs.get(n).getClass();
+      }
+      // Filter and remove any nulls as we cannot have nulls when invoking method due to signature mismatch.
+      remainingArgClassTypes = Arrays.stream(classTypes).filter(Objects::nonNull).collect(Collectors.toList());
+    }
+
     try {
-      logger.atFine().log("Looking for method %s...", methodName);
-      Method method = obj.getClass().getMethod(methodName, key.getClass());
-      method.invoke(obj, key);
-      logger.atFine().log("Success for %s!", methodName);
+      // The initial argument will be of the Project.NameKey type in most cases. If there are no other
+      // remaining arguments then we can look for a matching method name that has a single argument in its signature
+      if(remainingArgs.size() == 0) {
+
+        logger.atFine().log("Looking for method %s...", methodName);
+        Method method = obj.getClass().getMethod(methodName, methodArg.getClass());
+        method.invoke(obj, methodArg);
+        logger.atFine().log("Success for %s!", methodName);
+
+      } else {
+        // We have remaining arguments so lets look for a method signature that matches.
+        logger.atFine().log("Looking for method %s with the following signature %s",
+                methodName, remainingArgClassTypes);
+
+        // The Project.NameKey must be the first argument in the method signature, so placing it at index 0.
+        remainingArgClassTypes.add(0, methodArg.getClass());
+
+        // The remainingArgClassTypes array is a filtered array (no nulls) of class types. If a method is
+        // found with a matching name and matching signature of class types then we will be able to invoke
+        // against that method.
+        Class<?>[] remainingTypesArray = remainingArgClassTypes.toArray(new Class<?>[0]);
+        Method method = obj.getClass().getMethod(methodName, remainingTypesArray);
+
+        // Add the first argument at index 0 so they call all be passed together in a single array for invocation.
+        remainingArgs.add(0, methodArg);
+        method.invoke(obj, remainingArgs.toArray());
+
+        logger.atFine().log("Success for %s!", methodName);
+      }
     } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException | SecurityException ex) {
       final String err = String.format("CACHE method call has been lost, could not call %s. %s", cacheName, methodName);
       logger.atSevere().withCause(ex).log(err);

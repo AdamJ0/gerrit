@@ -19,7 +19,7 @@ import com.google.gerrit.extensions.annotations.ExtensionPoint;
 /** Notified whenever a Change is deleted. */
 @ExtensionPoint
 public interface ChangeDeletedListener {
-  interface Event extends ChangeEvent {}
+  interface Event extends ChangeEvent, ReplicatedStreamEvent {}
 
   void onChangeDeleted(Event event);
 }

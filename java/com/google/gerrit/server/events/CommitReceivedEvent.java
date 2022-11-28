@@ -23,6 +23,7 @@ import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.transport.ReceiveCommand;
 
+@isReplicatedServerEvent
 public class CommitReceivedEvent extends RefEvent implements AutoCloseable {
   static final String TYPE = "commit-received";
   public ReceiveCommand command;

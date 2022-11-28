@@ -21,7 +21,7 @@ import com.google.gerrit.extensions.common.AccountInfo;
 /** Notified whenever a change assignee is changed. */
 @ExtensionPoint
 public interface AssigneeChangedListener {
-  interface Event extends ChangeEvent {
+  interface Event extends ChangeEvent, ReplicatedStreamEvent {
     @Nullable
     AccountInfo getOldAssignee();
   }

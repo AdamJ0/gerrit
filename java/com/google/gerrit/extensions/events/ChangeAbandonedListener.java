@@ -19,7 +19,7 @@ import com.google.gerrit.extensions.annotations.ExtensionPoint;
 /** Notified whenever a Change is abandoned. */
 @ExtensionPoint
 public interface ChangeAbandonedListener {
-  interface Event extends RevisionEvent {
+  interface Event extends RevisionEvent, ReplicatedStreamEvent {
     String getReason();
   }
 

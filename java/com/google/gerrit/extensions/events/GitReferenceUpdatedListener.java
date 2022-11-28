@@ -21,7 +21,7 @@ import com.google.gerrit.extensions.common.AccountInfo;
 /** Notified when one or more references are modified. */
 @ExtensionPoint
 public interface GitReferenceUpdatedListener {
-  interface Event extends ProjectEvent {
+  interface Event extends ProjectEvent, ReplicatedStreamEvent {
     String getRefName();
 
     String getOldObjectId();

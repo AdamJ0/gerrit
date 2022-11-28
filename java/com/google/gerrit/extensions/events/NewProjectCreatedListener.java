@@ -19,7 +19,7 @@ import com.google.gerrit.extensions.annotations.ExtensionPoint;
 /** Notified whenever a project is created on the master. */
 @ExtensionPoint
 public interface NewProjectCreatedListener {
-  interface Event extends ProjectEvent {
+  interface Event extends ProjectEvent, ReplicatedStreamEvent {
     String getHeadName();
   }
 

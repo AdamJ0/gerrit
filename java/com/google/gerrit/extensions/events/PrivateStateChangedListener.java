@@ -15,7 +15,7 @@
 package com.google.gerrit.extensions.events;
 
 public interface PrivateStateChangedListener {
-  interface Event extends RevisionEvent {}
+  interface Event extends RevisionEvent, ReplicatedStreamEvent {}
 
   void onPrivateStateChanged(Event event);
 }

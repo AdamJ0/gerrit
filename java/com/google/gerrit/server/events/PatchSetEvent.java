@@ -30,7 +30,6 @@ package com.google.gerrit.server.events;
 import com.google.common.base.Supplier;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.server.data.PatchSetAttribute;
-
 public class PatchSetEvent extends ChangeEvent {
   public Supplier<PatchSetAttribute> patchSet;
 

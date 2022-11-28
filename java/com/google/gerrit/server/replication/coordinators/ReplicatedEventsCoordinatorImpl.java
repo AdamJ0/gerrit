@@ -2,8 +2,11 @@ package com.google.gerrit.server.replication.coordinators;
 
 import com.google.common.base.Verify;
 import com.google.gerrit.index.project.ProjectIndexer;
+import com.google.gerrit.server.events.EventBroker;
+import com.google.gerrit.server.replication.streamlistener.ReplicatedStreamEventsApiListener;
 import com.google.gerrit.server.index.group.GroupIndexer;
 import com.google.gerrit.server.notedb.ChangeNotes;
+import com.google.gerrit.server.replication.ReplicatedEventRequestScope;
 import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gerrit.server.replication.ReplicatedScheduling;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingAccountBaseIndexEventsFeed;
@@ -11,7 +14,7 @@ import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingCacheEventsF
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingIndexEventsFeed;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingProjectEventsFeed;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingProjectIndexEventsFeed;
-import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingServerEventsFeed;
+import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingStreamEventsFeed;
 import com.google.gerrit.server.replication.processors.ReplicatedEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingAccountGroupIndexEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingAccountUserIndexEventProcessor;
@@ -19,7 +22,7 @@ import com.google.gerrit.server.replication.processors.ReplicatedIncomingCacheEv
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingIndexEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingProjectEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingProjectIndexEventProcessor;
-import com.google.gerrit.server.replication.processors.ReplicatedIncomingServerEventProcessor;
+import com.google.gerrit.server.replication.processors.ReplicatedIncomingStreamEventProcessor;
 import com.google.gerrit.server.replication.workers.ReplicatedIncomingEventWorker;
 import com.google.gerrit.server.replication.workers.ReplicatedOutgoingEventWorker;
 import com.google.gerrit.reviewdb.server.ReviewDb;
@@ -39,9 +42,7 @@ import org.eclipse.jgit.lib.Config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -52,27 +53,31 @@ import java.util.concurrent.ConcurrentHashMap;
 public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordinator {
   private static final Logger log = LoggerFactory.getLogger(ReplicatedEventsCoordinatorImpl.class);
   private final ReplicatedConfiguration replicatedConfiguration;
+  private ReplicatedEventRequestScope replicatedEventRequestScope;
+
   /*Processors*/
   private final ReplicatedIncomingIndexEventProcessor replicatedIncomingIndexEventProcessor;
   private final ReplicatedIncomingAccountUserIndexEventProcessor replicatedIncomingAccountUserIndexEventProcessor;
   private final ReplicatedIncomingAccountGroupIndexEventProcessor replicatedIncomingAccountGroupIndexEventProcessor;
-  private final ReplicatedIncomingServerEventProcessor replicatedIncomingServerEventProcessor;
   private final ReplicatedIncomingCacheEventProcessor replicatedIncomingCacheEventProcessor;
   private final ReplicatedIncomingProjectEventProcessor replicatedIncomingProjectEventProcessor;
   private final ReplicatedIncomingProjectIndexEventProcessor replicatedIncomingProjectIndexEventProcessor;
+
+  private final ReplicatedIncomingStreamEventProcessor replicatedIncomingStreamEventProcessor;
+
   /*Feeds*/
   private final ReplicatedOutgoingIndexEventsFeed replicatedOutgoingIndexEventsFeed;
   private final ReplicatedOutgoingCacheEventsFeed replicatedOutgoingCacheEventsFeed;
   private final ReplicatedOutgoingProjectEventsFeed replicatedOutgoingProjectEventsFeed;
   private final ReplicatedOutgoingAccountBaseIndexEventsFeed replicatedOutgoingAccountBaseIndexEventsFeed;
   private final ReplicatedOutgoingProjectIndexEventsFeed replicatedOutgoingProjectIndexEventsFeed;
-  private ReplicatedOutgoingServerEventsFeed replicatedOutgoingServerEventsFeed;
+  private ReplicatedOutgoingStreamEventsFeed replicatedOutgoingStreamEventsFeed;
 
   private final ReplicatedIncomingEventWorker replicatedIncomingEventWorker;
   private final ReplicatedOutgoingEventWorker replicatedOutgoingEventWorker;
-
-
   private final ReplicatedScheduling replicatedScheduling;
+
+  private final Provider<ReplicatedStreamEventsApiListener> replicatedStreamEventsApiListener;
 
   private final Provider<SchemaFactory<ReviewDb>> schemaFactory;
   private final Provider<ChangeNotes.Factory> notesFactory;
@@ -85,6 +90,8 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
   private final GitRepositoryManager gitRepositoryManager;
   private final Gson gson;
 
+  private EventBroker eventBroker;
+
   private Injector sysInjector;
 
   @Override
@@ -95,6 +102,8 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
   @Inject
   public ReplicatedEventsCoordinatorImpl(@GerritServerConfig Config config,
                                          ReplicatedConfiguration configuration,
+                                         ReplicatedEventRequestScope replicatedEventRequestScope,
+                                         Provider<ReplicatedStreamEventsApiListener> replicatedStreamEventsApiListener,
                                          Provider<SchemaFactory<ReviewDb>> schemaFactory,
                                          Provider<ChangeNotes.Factory> notesFactory,
                                          Provider<ChangeIndexer> changeIndexer,
@@ -105,6 +114,8 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
                                          @Named("wdGson") Gson gson) throws Exception {
     Verify.verifyNotNull(configuration);
     this.replicatedConfiguration = configuration;
+    this.replicatedEventRequestScope = replicatedEventRequestScope;
+    this.replicatedStreamEventsApiListener = replicatedStreamEventsApiListener;
     this.gerritVanillaServerConfig = config;
     this.schemaFactory = schemaFactory;
     this.notesFactory = notesFactory;
@@ -116,15 +127,18 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
     this.gson = gson;
 
     if(!isReplicationEnabled()){
+      /* workers */
       replicatedIncomingEventWorker = null;
       replicatedOutgoingEventWorker = null;
+      /* processors */
       replicatedIncomingIndexEventProcessor = null;
       replicatedIncomingAccountUserIndexEventProcessor = null;
       replicatedIncomingAccountGroupIndexEventProcessor = null;
-      replicatedIncomingServerEventProcessor = null;
+      replicatedIncomingStreamEventProcessor = null;
       replicatedIncomingCacheEventProcessor = null;
       replicatedIncomingProjectEventProcessor = null;
       replicatedIncomingProjectIndexEventProcessor = null;
+      /* feeds*/
       replicatedOutgoingIndexEventsFeed = null;
       replicatedOutgoingCacheEventsFeed = null;
       replicatedOutgoingProjectEventsFeed = null;
@@ -136,7 +150,6 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
 
     ensureEventsDirectoriesExist();
 
-
     /* Workers */
     replicatedIncomingEventWorker = new ReplicatedIncomingEventWorker(this);
     replicatedOutgoingEventWorker = new ReplicatedOutgoingEventWorker(this);
@@ -146,10 +159,12 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
     replicatedIncomingIndexEventProcessor = new ReplicatedIncomingIndexEventProcessor(this);
     replicatedIncomingAccountUserIndexEventProcessor = new ReplicatedIncomingAccountUserIndexEventProcessor(this);
     replicatedIncomingAccountGroupIndexEventProcessor = new ReplicatedIncomingAccountGroupIndexEventProcessor(this);
-    replicatedIncomingServerEventProcessor = new ReplicatedIncomingServerEventProcessor(this);
     replicatedIncomingCacheEventProcessor = new ReplicatedIncomingCacheEventProcessor(this);
     replicatedIncomingProjectEventProcessor = new ReplicatedIncomingProjectEventProcessor(this);
     replicatedIncomingProjectIndexEventProcessor = new ReplicatedIncomingProjectIndexEventProcessor(this);
+
+    /* Stream Event Processor */
+    replicatedIncomingStreamEventProcessor = new ReplicatedIncomingStreamEventProcessor(this, replicatedEventRequestScope);
 
     /*
      * Feeds to the queue.
@@ -172,6 +187,19 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
   @Override
   public Injector getSysInjector() {
     return sysInjector;
+  }
+
+  /**
+   * Using the sysInjector to get an instance of EventBroker to avoid using the coordinator
+   * having to inject an EventBroker dependency in its constructor which would cause a dependency cycle.
+   *
+   * @return A singleton instance of the EventBroker.
+   */
+  public EventBroker getEventBroker() {
+    if (eventBroker == null) {
+      eventBroker = this.getSysInjector().getInstance(EventBroker.class);
+    }
+    return eventBroker;
   }
 
   @Override
@@ -198,7 +226,7 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
     replicatedIncomingCacheEventProcessor.stop();
     replicatedIncomingAccountUserIndexEventProcessor.stop();
     replicatedIncomingProjectEventProcessor.stop();
-    replicatedIncomingServerEventProcessor.stop();
+    replicatedIncomingStreamEventProcessor.stop();
     replicatedIncomingIndexEventProcessor.stop();
 
     // We could maybe start using shutdown / then awaitTermination but for now we don't care, pull the plug and we
@@ -327,6 +355,17 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
     }
   }
 
+  @Override
+  public ReplicatedEventRequestScope getReplicatedEventRequestScope() {
+    return replicatedEventRequestScope;
+  }
+
+  @Override
+  public ReplicatedStreamEventsApiListener getReplicatedStreamEventsApiListener() {
+    return replicatedStreamEventsApiListener.get();
+  }
+
+
   /* Processors */
 
   @Override
@@ -344,9 +383,9 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
     return replicatedIncomingAccountGroupIndexEventProcessor;
   }
 
-  @Override
-  public ReplicatedIncomingServerEventProcessor getReplicatedIncomingServerEventProcessor() {
-    return replicatedIncomingServerEventProcessor;
+
+  public ReplicatedIncomingStreamEventProcessor getReplicatedIncomingStreamEventProcessor() {
+    return replicatedIncomingStreamEventProcessor;
   }
 
   @Override
@@ -388,11 +427,11 @@ public class ReplicatedEventsCoordinatorImpl implements ReplicatedEventsCoordina
   }
 
   @Override
-  public ReplicatedOutgoingServerEventsFeed getReplicatedOutgoingServerEventsFeed() {
-    if (replicatedOutgoingServerEventsFeed == null) {
-      replicatedOutgoingServerEventsFeed = getSysInjector().getInstance(ReplicatedOutgoingServerEventsFeed.class);
+  public ReplicatedOutgoingStreamEventsFeed getReplicatedOutgoingStreamEventsFeed() {
+    if (replicatedOutgoingStreamEventsFeed == null) {
+      replicatedOutgoingStreamEventsFeed = getSysInjector().getInstance(ReplicatedOutgoingStreamEventsFeed.class);
     }
-    return replicatedOutgoingServerEventsFeed;
+    return replicatedOutgoingStreamEventsFeed;
   }
 
 
