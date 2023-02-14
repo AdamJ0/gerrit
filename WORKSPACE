@@ -1096,7 +1096,7 @@ maven_jar(
     name = "gerrit-gitms-interface",
     artifact = "com.wandisco:gerrit-gitms-interface:" + _GERRIT_GITMS_VERSION,
     repository = WANDISCO_ASSETS,
-    sha1 = "17f5e69c6e8778fe25a08e470403fdcc0a1188e1",
+    #sha1 = "17f5e69c6e8778fe25a08e470403fdcc0a1188e1",
 )
 
 load("//tools/bzl:js.bzl", "bower_archive", "npm_binary")
