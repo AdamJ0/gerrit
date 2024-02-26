@@ -19,16 +19,13 @@ import com.google.gerrit.extensions.api.changes.NotifyHandling;
 import com.google.gerrit.extensions.common.AccountInfo;
 import com.google.gerrit.extensions.common.ChangeInfo;
 import com.google.gerrit.extensions.events.AssigneeChangedListener;
-import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.server.account.AccountState;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
-import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import java.sql.Timestamp;
-import java.util.StringJoiner;
 
 @Singleton
 public class AssigneeChanged {
@@ -36,14 +33,11 @@ public class AssigneeChanged {
 
   private final PluginSetContext<AssigneeChangedListener> listeners;
   private final EventUtil util;
-  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
-
 
   @Inject
-  AssigneeChanged(PluginSetContext<AssigneeChangedListener> listeners, EventUtil util, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
+  AssigneeChanged(PluginSetContext<AssigneeChangedListener> listeners, EventUtil util) {
     this.listeners = listeners;
     this.util = util;
-    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   public void fire(
@@ -57,73 +51,24 @@ public class AssigneeChanged {
               util.changeInfo(change),
               util.accountInfo(accountState),
               util.accountInfo(oldAssignee),
-              when,
-              replicatedEventsCoordinator.getThisNodeIdentity());
+              when);
       listeners.runEach(l -> l.onAssigneeChanged(event));
     } catch (OrmException e) {
       logger.atSevere().withCause(e).log("Couldn't fire event");
     }
   }
 
-  /**
-   * fire stream event off for its respective listeners to pick up.
-   * @param streamEvent AssigneeChangedListener.Event
-   */
-  public void fire(AssigneeChangedListener.Event streamEvent) {
-    if (listeners.isEmpty()) {
-      return;
-    }
-    listeners.runEach(l -> l.onAssigneeChanged(streamEvent));
-  }
-
-  @isReplicatedStreamEvent
   private static class Event extends AbstractChangeEvent implements AssigneeChangedListener.Event {
     private final AccountInfo oldAssignee;
 
-    Event(ChangeInfo change, AccountInfo editor, AccountInfo oldAssignee, Timestamp when, final String nodeIdentity) {
-      super(change, editor, when, NotifyHandling.ALL, nodeIdentity);
+    Event(ChangeInfo change, AccountInfo editor, AccountInfo oldAssignee, Timestamp when) {
+      super(change, editor, when, NotifyHandling.ALL);
       this.oldAssignee = oldAssignee;
     }
 
     @Override
     public AccountInfo getOldAssignee() {
       return oldAssignee;
-    }
-
-    @Override
-    public String nodeIdentity() {
-      return super.getNodeIdentity();
-    }
-
-    @Override
-    public String className() {
-      return this.getClass().getName();
-    }
-
-    @Override
-    public String projectName() {
-      return getChange().project;
-    }
-
-    @Override
-    public void setStreamEventReplicated(boolean replicated) {
-      hasBeenReplicated = replicated;
-    }
-
-    @Override
-    public boolean replicationSuccessful() {
-      return hasBeenReplicated;
-    }
-
-    @Override
-    public String toString() {
-      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
-              .add("oldAssignee=" + oldAssignee)
-              .add("hasBeenReplicated=" + super.hasBeenReplicated)
-              .add("eventTimestamp=" + getEventTimestamp())
-              .add("eventNanoTime=" + getEventNanoTime())
-              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
-              .toString();
     }
   }
 }

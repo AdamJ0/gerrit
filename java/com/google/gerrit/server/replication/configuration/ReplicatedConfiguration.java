@@ -20,6 +20,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedList;
@@ -63,6 +64,8 @@ import static com.google.gerrit.server.replication.configuration.ReplicationCons
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.INCOMING_DIR;
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.OUTGOING_DIR;
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.REPLICATED_EVENTS_DIRECTORY_NAME;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_FILE_SYSTEM_RESOLUTION;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_REPLICATED_EVENTS_ENABLED_SEND;
 
 /**
  * really we want to register this as a singleton in the guice bindings and let it be auto injected into any
@@ -73,8 +76,8 @@ import static com.google.gerrit.server.replication.configuration.ReplicationCons
 public class ReplicatedConfiguration {
 
   /**
-   * In the Daemon {@link com.google.gerrit.pgm.Daemon#createCfgInjector()} () ConfigInjector } this module is used as a child module to
-   * bind this class with the cfgInjector. Later on in the {@link com.google.gerrit.pgm.Daemon#createSysInjector()} () ConfigInjector }
+   * In the Daemon com.google.gerrit.pgm.Daemon#createCfgInjector() this module is used as a child module to
+   * bind this class with the cfgInjector. Later on in the com.google.gerrit.pgm.Daemon#createSysInjector()
    * method we can then get an instance of this class from the cfgInjector to perform a check
    * whether replication is enabled or not.
    **/
@@ -92,17 +95,18 @@ public class ReplicatedConfiguration {
   /*******************************************************************
    * Replicated events configuration
    */
-  private boolean replicatedEventsReceive = true;
-  private boolean replicatedEventsReplicateOriginalEvents = true;
+  private boolean receiveIncomingStreamAPIEvents = true;
+  private boolean receiveIncomingStreamAPIReplicatedEventsAndPublish = true;
   private boolean receiveReplicatedEventsEnabled = true;
-  private boolean replicatedEventsEnabled = true;
-  private boolean replicatedEventsSend = true;
+  private boolean replicatedStreamEventsSend = true;
   private boolean localRepublishEnabled = false;
   private boolean incomingEventsAreGZipped = false; // on the landing node, is events file to be unzipped.
   private int maxNumberOfEventsBeforeProposing;
   private File replicatedEventsBaseDirectory = null;
   private File outgoingReplEventsDirectory = null;
+  private File outgoingTemporaryReplEventsDirectory = null;
   private File incomingReplEventsDirectory = null;
+  private File incomingTemporaryReplEventsDirectory = null;
   private File incomingFailedReplEventsDirectory = null;
   private List<String> eventSkipList = new ArrayList<>(); //Events that we skip replication for
 
@@ -112,6 +116,8 @@ public class ReplicatedConfiguration {
    */
   private long maxSecsToWaitBeforeProposingEvents;
   private long eventWorkerDelayPeriodMs;
+
+  private Long fileSystemResolutionPeriodMs; // used as sleep period for event worker checks.
   private long minutesSinceChangeLastIndexedCheckPeriod;
   // New replicated event worker pool items.
   private int maxNumberOfEventWorkerThreads;
@@ -134,7 +140,7 @@ public class ReplicatedConfiguration {
   private AllUsersNameProvider allUsersNameProvider;
   private AllProjectsNameProvider allProjectsNameProvider;
   private Config gerritServerConfig;
-  private ConfigureReplication configureReplication;
+  private AllowReplication allowReplication;
   private GitMsApplicationProperties gitMsApplicationProperties;
 
   /**
@@ -152,14 +158,14 @@ public class ReplicatedConfiguration {
     this.gerritServerConfig = config;
     this.allProjectsNameProvider = allProjectsNameProvider;
     this.allUsersNameProvider = allUsersNameProvider;
-    this.configureReplication = ConfigureReplication.getInstance(config);
+    this.allowReplication = AllowReplication.getInstance(config);
 
     // we record if a failure happened when reading the configuration - we only read config
     // on startup of our singleton now - prevents any locking issues or required checking - also
     // we now throw if something wrong and stop the service starting!!
     readConfiguration(null);
 
-    if(configureReplication.isReplicationEnabled()) {
+    if(allowReplication.isReplicationEnabled()) {
       try {
         File applicationProperties = getApplicationPropsFile(getFileBasedGitConfig());
         this.gitMsApplicationProperties = new GitMsApplicationProperties(applicationProperties.getAbsolutePath());
@@ -190,8 +196,8 @@ public class ReplicatedConfiguration {
    * @return instance of ConfigureReplication which can be used to determine
    * if replication is disabled or not
    */
-  public ConfigureReplication getConfigureReplication() {
-    return configureReplication;
+  public AllowReplication getAllowReplication() {
+    return allowReplication;
   }
 
   public int getMaxNumberOfEventWorkerThreads() {
@@ -216,30 +222,26 @@ public class ReplicatedConfiguration {
 
   public boolean isReplicationEnabled(){
     // If configureReplication is null then we are most likely in a test and replication should be false.
-    if(configureReplication == null){
+    if(allowReplication == null){
       return false;
     }
-    return configureReplication.isReplicationEnabled();
+    return allowReplication.isReplicationEnabled();
   }
 
-  public boolean isReplicatedEventsReceive() {
-    return replicatedEventsReceive;
+  public boolean isReceiveIncomingStreamAPIEvents() {
+    return receiveIncomingStreamAPIEvents;
   }
 
-  public boolean isReplicatedEventsReplicateOriginalEvents() {
-    return replicatedEventsReplicateOriginalEvents;
+  public boolean isReceiveIncomingStreamAPIReplicatedEventsAndPublish() {
+    return receiveIncomingStreamAPIReplicatedEventsAndPublish;
   }
 
   public boolean isReceiveReplicatedEventsEnabled() {
     return receiveReplicatedEventsEnabled;
   }
 
-  public boolean isReplicatedEventsEnabled() {
-    return replicatedEventsEnabled;
-  }
-
-  public boolean isReplicatedEventsSend() {
-    return replicatedEventsSend;
+  public boolean isReplicatedStreamEventsSendEnabled() {
+    return replicatedStreamEventsSend;
   }
 
   public boolean isLocalRepublishEnabled() {
@@ -310,7 +312,7 @@ public class ReplicatedConfiguration {
 
     try {
       //Supplied props null and replication disabled
-      if (suppliedProperties == null && !configureReplication.isReplicationEnabled()) {
+      if (suppliedProperties == null && !allowReplication.isReplicationEnabled()) {
         return;
       }
 
@@ -326,16 +328,10 @@ public class ReplicatedConfiguration {
         // is only injected via guice in the main constructor also. Both of these will be null during testing.
         // There are some tests where we need to access these objects therefore we create instances of them
         // here when they are both null.
-        if(configureReplication == null && gerritServerConfig == null){
+        if(allowReplication == null && gerritServerConfig == null){
           gerritServerConfig = new Config();
-          configureReplication = ConfigureReplication.getInstance(gerritServerConfig);
+          allowReplication = AllowReplication.getInstance(gerritServerConfig);
         }
-
-        //Required for tests
-        replicatedEventsBaseDirectory = new File(defaultBaseDir);
-        outgoingReplEventsDirectory = new File(replicatedEventsBaseDirectory, OUTGOING_DIR);
-        incomingReplEventsDirectory = new File(replicatedEventsBaseDirectory, INCOMING_DIR);
-        incomingFailedReplEventsDirectory = new File(replicatedEventsBaseDirectory, INCOMING_DIR + File.separator + FAILED_DIR);
         return;
       }
 
@@ -345,15 +341,51 @@ public class ReplicatedConfiguration {
       // Use the .gitconfig FileBasedConfig instance to determine where the GitMS application.properties are located.
       Properties loadedGitMSApplicationProperties = findAndLoadGitMSApplicationProperties(config);
       readAndDefaultConfigurationFromProperties(loadedGitMSApplicationProperties);
-
-      replicatedEventsBaseDirectory = new File(defaultBaseDir);
-      outgoingReplEventsDirectory = new File(replicatedEventsBaseDirectory, OUTGOING_DIR);
-      incomingReplEventsDirectory = new File(replicatedEventsBaseDirectory, INCOMING_DIR);
-      incomingFailedReplEventsDirectory = new File(replicatedEventsBaseDirectory, INCOMING_DIR + File.separator + FAILED_DIR);
-
     } catch (IOException e) {
       logger.atSevere().withCause(e).log("While loading the .gitconfig file");
       throw new ConfigInvalidException("Unable to continue without valid GerritMS configuration.");
+    }
+  }
+
+  // If there is a hard configuration value in the Replicated configuration for gerrit, we use it as an override for the file system
+  // accuracy of this location - and it indicates the value of how long we need to wait to be able to trust the folder modification time.
+  // If the configuration isn't specified, we will try to get the best default value for this file system location and file system type.
+  // Note the wait is in ms, as the incoming/outgoing workers have a check period of 500ms by default, any value less than 500ms is fine by default,
+  // if larger than 500ms ( default ), we will output warning that the worker delay period should be increased.
+  public void attemptGetIncomingEventsDirectoryFilesystemAccuracy(){
+
+    if ( fileSystemResolutionPeriodMs != null ){
+      // someone has already set this up - either via config override, or default for the system, lets leave it alone!
+      return;
+    }
+
+    // If there is no directory yet, we can do nothing, so just exit.
+    if ( incomingReplEventsDirectory == null ){
+      return;
+    }
+    if ( !incomingReplEventsDirectory.exists()){
+      return;
+    }
+
+    // otherwise lets get the file system resolution, and racyness for this filesystem path, as the accuracy and reliance
+    // of the last modified time depends on this location and file system type.
+    FS.FileStoreAttributes fileStoreAttributes = FS.FileStoreAttributes.get(incomingReplEventsDirectory.toPath());
+
+    final long dirResolutionNs = fileStoreAttributes.getFsTimestampResolution().toNanos();
+    final long dirRacynessNs = fileStoreAttributes.getMinimalRacyInterval().toNanos();
+
+    Duration incomingDirResolution = Duration.ofNanos(dirResolutionNs+ dirRacynessNs);
+
+    logger.atInfo().log(
+        String.format("Incoming Events Directory has file system resolution of : %s ns, racyness %s ns so modification trust period is %s ms.",
+            dirResolutionNs, dirRacynessNs, incomingDirResolution.toMillis()));
+
+    fileSystemResolutionPeriodMs = incomingDirResolution.toMillis();
+
+    if ( fileSystemResolutionPeriodMs > eventWorkerDelayPeriodMs ){
+      logger.atWarning().log("FileSystemResolutionPeriodMs for the incoming events directory of %s ms is larger than the event worker poll period %s ms. " +
+              "This max period for polling configuration value = gerrit.max.secs.to.wait.on.poll.and.read should be increased above this value to account for slower file system resolution on this system.",
+          fileSystemResolutionPeriodMs, eventWorkerDelayPeriodMs);
     }
   }
 
@@ -521,7 +553,6 @@ public class ReplicatedConfiguration {
             .getProperty(GERRIT_EVENTS_BACKOFF_CEILING_PERIOD,
                 DEFAULT_GERRIT_EVENTS_BACKOFF_CEILING_PERIOD)));
 
-
     // Read in a comma separated list of events that should be skipped. Arrays.asList returns
     // a fixed size list and cannot be mutated so using an ArrayList here instead that takes a default list with an
     // initial size in order to later on have the ability to use addAll() to join the default list
@@ -576,23 +607,27 @@ public class ReplicatedConfiguration {
       // we can continue with some defaults - just record this problem.
       logger.atSevere().withCause(e).log("Not able to load cache properties");
     }
+    // If set to false we'll only replicate cache and index events.  see GER-1946
+    replicatedStreamEventsSend =  Boolean.parseBoolean(props.getProperty(GERRIT_REPLICATED_EVENTS_ENABLED_SEND, "true"));
 
-    replicatedEventsSend = true; // they must be always enabled, not dependent on GERRIT_REPLICATED_EVENTS_ENABLED_SEND
-    replicatedEventsReceive = Boolean.parseBoolean(props.getProperty(GERRIT_REPLICATED_EVENTS_ENABLED_RECEIVE, "true"));
-    replicatedEventsReplicateOriginalEvents = Boolean.parseBoolean(props.getProperty(GERRIT_REPLICATED_EVENTS_RECEIVE_ORIGINAL, "true"));
+    // Used by Gerrit to decide whether to read the incoming server events or not.
+    receiveIncomingStreamAPIEvents =
+            Boolean.parseBoolean(props.getProperty(GERRIT_REPLICATED_EVENTS_ENABLED_RECEIVE, "true"));
+    // This is the decision to publish replicated events to our local event stream
+    receiveIncomingStreamAPIReplicatedEventsAndPublish =
+            Boolean.parseBoolean(props.getProperty(GERRIT_REPLICATED_EVENTS_RECEIVE_ORIGINAL, "true"));
 
-    receiveReplicatedEventsEnabled = replicatedEventsReceive || replicatedEventsReplicateOriginalEvents;
-    replicatedEventsEnabled = receiveReplicatedEventsEnabled || replicatedEventsSend;
-    if (replicatedEventsEnabled) {
-      logger.atInfo().log("RE Replicated events are enabled, send: %s, receive: %s", replicatedEventsSend, receiveReplicatedEventsEnabled);
+    receiveReplicatedEventsEnabled = receiveIncomingStreamAPIEvents || receiveIncomingStreamAPIReplicatedEventsAndPublish;
 
-      int workerBaseNumThreads = Integer.parseInt(
-          props.getProperty(GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE, DEFAULT_EVENT_WORKER_POOL_SIZE));
+    logger.atInfo().log("RE Replicated events are enabled, send: %s, receive: %s", replicatedStreamEventsSend, receiveReplicatedEventsEnabled);
 
-      if ( workerBaseNumThreads < 1 ){
-        logger.atSevere().log("Invalid number of worker threads indicated which is less than 1 - indicating default number %d", DEFAULT_EVENT_WORKER_POOL_SIZE);
-        workerBaseNumThreads = Integer.parseInt(DEFAULT_EVENT_WORKER_POOL_SIZE);
-      }
+    int workerBaseNumThreads = Integer.parseInt(
+            props.getProperty(GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE, DEFAULT_EVENT_WORKER_POOL_SIZE));
+
+    if ( workerBaseNumThreads < 1 ) {
+      logger.atSevere().log("Invalid number of worker threads indicated which is less than 1 - indicating default number %d", DEFAULT_EVENT_WORKER_POOL_SIZE);
+      workerBaseNumThreads = Integer.parseInt(DEFAULT_EVENT_WORKER_POOL_SIZE);
+    }
 
       // Now add on the amount of core threads, so that the max number of threads is the max thread pool size
       // get the real name for special projects.
@@ -608,12 +643,39 @@ public class ReplicatedConfiguration {
 
       logger.atInfo().log("RE Replicated events are to be processed using worker pool size: %s maxIdlePeriodSecs: %s.",
           maxNumberOfEventWorkerThreads, maxIdlePeriodEventWorkerThreadInSeconds);
-    } else {
-      logger.atInfo().log("RE Replicated events are disabled"); // This could not appear in the log... cause the log could not yet be ready
-    }
 
     logger.atInfo().log("RE Replicated events: receive=%s, original=%s, send=%s ",
-        replicatedEventsReceive, replicatedEventsReplicateOriginalEvents, replicatedEventsSend);
+            receiveIncomingStreamAPIEvents, receiveIncomingStreamAPIReplicatedEventsAndPublish, replicatedStreamEventsSend);
+
+    // Setup all events directories now we know the base directory.
+    replicatedEventsBaseDirectory = new File(defaultBaseDir);
+    outgoingReplEventsDirectory = new File(replicatedEventsBaseDirectory, OUTGOING_DIR);
+    outgoingTemporaryReplEventsDirectory = new File(outgoingReplEventsDirectory, "tmp");
+
+    incomingReplEventsDirectory = new File(replicatedEventsBaseDirectory, INCOMING_DIR);
+    incomingFailedReplEventsDirectory = new File(incomingReplEventsDirectory, FAILED_DIR);
+    incomingTemporaryReplEventsDirectory = new File(incomingReplEventsDirectory, "tmp");
+
+    // Lets setup the file system resolution / racyness value for this file system / directory combo.
+    final String fileSystemResolutionConfig = props.getProperty(GERRIT_FILE_SYSTEM_RESOLUTION);
+
+    // only if the value is specified - do we take its value - otherwise leave this as null, to be filled in as a better default
+    // later.
+    if ( !Strings.isNullOrEmpty(fileSystemResolutionConfig)) {
+      fileSystemResolutionPeriodMs =
+          // period of time you need to wait to guarantee an update of the file system.
+          // This is used to workaround file system accuracy issues, note certain JDKs have only 1second accuracy.
+          Long.parseLong(fileSystemResolutionConfig);
+
+      if ( fileSystemResolutionPeriodMs > eventWorkerDelayPeriodMs ){
+        logger.atWarning().log("FileSystemResolutionPeriodMs for the incoming events directory of %s ms is larger than the event worker poll period %s ms. " +
+                "This max period for polling configuration value = gerrit.max.secs.to.wait.on.poll.and.read should be increased above this value to account for slower file system resolution on this system.",
+            fileSystemResolutionPeriodMs, eventWorkerDelayPeriodMs);
+      }
+    }else {
+      // the directory may be present - lets go and find out its accuracy.
+      attemptGetIncomingEventsDirectoryFilesystemAccuracy();
+    }
   }
 
   /**
@@ -658,8 +720,19 @@ public class ReplicatedConfiguration {
     return outgoingReplEventsDirectory;
   }
 
+  public File getOutgoingTemporaryReplEventsDirectory() {
+    return outgoingTemporaryReplEventsDirectory;
+  }
   public File getIncomingReplEventsDirectory() {
     return incomingReplEventsDirectory;
+  }
+
+  public File getIncomingTemporaryReplEventsDirectory() {
+    return incomingTemporaryReplEventsDirectory;
+  }
+
+  public long getFileSystemResolutionPeriodMs(){
+    return fileSystemResolutionPeriodMs;
   }
 
   public File getIncomingFailedReplEventsDirectory() {
@@ -762,7 +835,7 @@ public class ReplicatedConfiguration {
   @Override
   public String toString() {
     final StringBuilder sb = new StringBuilder("ReplicatedConfiguration{");
-    sb.append("replicationEnabled=").append(configureReplication.isReplicationEnabled());
+    sb.append("replicationEnabled=").append(allowReplication.isReplicationEnabled());
     sb.append(", thisNodeIdentity='").append(getThisNodeIdentity()).append('\'');
     sb.append(", maxNumberOfEventsBeforeProposing=").append(getMaxNumberOfEventsBeforeProposing());
     sb.append(", maxSecsToWaitBeforeProposingEvents=").append(getMaxSecsToWaitBeforeProposingEvents());
@@ -776,11 +849,10 @@ public class ReplicatedConfiguration {
     sb.append(", outgoingReplEventsDirectory=").append(getOutgoingReplEventsDirectory());
     sb.append(", incomingReplEventsDirectory=").append(getIncomingReplEventsDirectory());
     sb.append(", incomingFailedReplEventsDirectory=").append(getIncomingFailedReplEventsDirectory());
-    sb.append(", replicatedEventsReceive=").append(replicatedEventsReceive);
-    sb.append(", replicatedEventsReplicateOriginalEvents=").append(replicatedEventsReplicateOriginalEvents);
+    sb.append(", replicatedEventsReceive=").append(receiveIncomingStreamAPIEvents);
+    sb.append(", replicatedEventsReplicateOriginalEvents=").append(receiveIncomingStreamAPIReplicatedEventsAndPublish);
     sb.append(", receiveReplicatedEventsEnabled=").append(receiveReplicatedEventsEnabled);
-    sb.append(", replicatedEventsEnabled=").append(replicatedEventsEnabled);
-    sb.append(", replicatedEventsSend=").append(replicatedEventsSend);
+    sb.append(", replicatedStreamEventsSend=").append(replicatedStreamEventsSend);
     sb.append(", localRepublishEnabled=").append(localRepublishEnabled);
     sb.append(", incomingEventsAreGZipped=").append(incomingEventsAreGZipped);
     sb.append(", maxNumberOfEventWorkerThreads=").append(getMaxNumberOfEventWorkerThreads());

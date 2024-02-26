@@ -10,21 +10,23 @@
 # the build files.
 #
 # The following options are supported:
-#  -c/--check      Will just validate the contents of jgit.bzl and WORKSPACE
-#                  and report on missing or duplicated SHAs.
-#  -e/--enable     In combination with '-p' if any SHAs being updated are
-#                  commented out, this flag will uncomment them.
-#  -f/--filter     Allows a custom asset filter to be specified as a regular
-#                  expression. Default filter will match com.wandisco and
-#                  org.eclipse.jgit.
-#  -j/--jar_store  This value will override the default location for reference
-#                  assets and can be a repository name, directory, or bazel
-#                  file.
-#  -p/--patch      This flag will update assets in jgit.bzl and WORKSPACE
-#                  with new SHAs calculated from corresponding reference
-#                  assets.
-#  -v/--verbose    Will provide more verbose logging during execution.
-#  -x/--debug      Will provide a lot of debug information during execution.
+#  -c/--check           Will just validate the contents of jgit.bzl and WORKSPACE
+#                       and report on missing or duplicated SHAs.
+#  -u/--update_version  Update version information to match the bom version.
+#  -s/--snapshot_check  Checks if any assets are in -SNAPSHOT
+#  -e/--enable          In combination with '-p' if any SHAs being updated are
+#                       commented out, this flag will uncomment them.
+#  -f/--filter          Allows a custom asset filter to be specified as a regular
+#                       expression. Default filter will match com.wandisco and
+#                       org.eclipse.jgit.
+#  -j/--jar_store       This value will override the default location for reference
+#                       assets and can be a repository name, directory, or bazel
+#                       file.
+#  -p/--patch           This flag will update assets in jgit.bzl and WORKSPACE
+#                       with new SHAs calculated from corresponding reference
+#                       assets.
+#  -v/--verbose         Will provide more verbose logging during execution.
+#  -x/--debug           Will provide a lot of debug information during execution.
 #
 # Typical usage scenarios might be:
 #
@@ -49,9 +51,10 @@ from __future__ import print_function
 import argparse
 import re
 import subprocess
+import shutil
 from copy import copy
 from hashlib import sha1
-from os import getcwd, getpid, path, remove, walk
+from os import getcwd, getpid, path, remove, rmdir, walk, mkdir
 from subprocess import CalledProcessError
 from sys import stderr
 from tempfile import gettempdir
@@ -89,6 +92,7 @@ class Asset:
         self.repository = None
         self.sha1 = None
         self.src_sha1 = None
+        self.old_version = None
 
     def __copy__(self):
         new = Asset()
@@ -313,6 +317,153 @@ def assets_from_bazel_file(filename):
     return asset_group
 
 
+def process_assets(properties, build_file_assets, check):
+    """
+    Processes assets to see if we should update or skip them.
+    Returns two dictionaries, one for updates and one for skips.
+    :param properties: List of properties from alm-common-bom
+    :param build_file_assets: List of each asset to be processed.
+    :param check: If assets are just being checked.
+    :return: Assets to be updated and skipped.
+    """
+    assets_to_update = {}
+    skipped_assets = {}
+    for asset_group in build_file_assets:
+        for asset in asset_group.assets:
+            artifact_split = asset.artifact.split(":")
+            group_id = artifact_split[0]
+            artifact_id = artifact_split[1]
+            version = artifact_split[2]
+
+            property_key = group_id + "." + artifact_id + ".version"
+            if property_key in properties:
+                property_version = properties[property_key]
+
+                if version == property_version:
+                    if check:
+                        print(asset.artifact + " will be skipped as the version already matches bom.")
+                    skipped_assets.update({asset.name: asset})
+                else:
+                    # Update the asset.
+                    new_asset = copy(asset)
+                    new_asset.artifact = group_id + ":" + artifact_id + ":" + property_version
+                    new_asset.old_version = version
+                    new_asset = asset_from_repo(new_asset, new_asset.repository)
+                    assets_to_update.update({new_asset.name: new_asset})
+                    print(asset.artifact + " does not match the version specified in the bom, it will be updated from " + version + " to " + property_version)
+            elif verbose:
+                print("Skipping because " + property_key + " is not in the properties file.")
+    return assets_to_update, skipped_assets
+
+
+def update_bazel_file(filename, assets_to_update):
+    """
+    Update's a bazel file line by line based on the assets to be updated.
+    :param filename: Name of the bazel file to update.
+    :param assets_to_update: The set of assets to update.
+    """
+    env = {}
+    env_line = {}
+
+    # Read the file.
+    with open(filename) as file_in:
+        data = file_in.readlines()
+
+    # Asset used to track where we are in the file.
+    current_asset = None
+
+    # Loop through each line in the file.
+    for count, original_line in enumerate(data):
+        line = original_line.strip()
+
+        if re.match("^maven_jar\(.*$", line):
+            # Start of an asset block.
+            current_asset = Asset()
+        elif current_asset and re.match("^\)$", line):
+            # End of an asset block.
+            current_asset = None
+        elif re.match("[^=]+=[^=]+", line):
+            # Found a variable.
+            k, v = parse_property(line)
+
+            if not current_asset:
+                # If not in an asset block, it's a variable.
+                # Remember it in case we need to update it later.
+                env[k] = v
+                env_line[k] = count
+            else:
+                # If in an asset block, it's an asset variable.
+                current_asset[k] = v
+
+                # If we are updating this asset.
+                if current_asset.name not in assets_to_update:
+                    new_asset = assets_to_update.get(current_asset.name)
+                    data[count] = original_line
+                    continue
+
+                new_line = original_line
+
+                # If the artifact contains a variable. (Look for a '+' in the value)
+                if k == "artifact" and re.match(".*:.*\+", v):
+                    # Get variable name
+                    env_variable = v.split('+')[1].strip()
+                    # Get what line the variable is on.
+                    line_num = env_line[env_variable]
+                    # Get the new value.
+                    version = new_asset.artifact.split(':')[2]
+                    # Update the variable if we have what line it is on and the version is different.
+                    if line_num and env[env_variable] != version:
+                        data[line_num] = env_variable + " = \"" + version + "\"\n"
+                else:
+                    # If the new asset has this property.
+                    if hasattr(new_asset, k):
+                        new_val = getattr(new_asset, k)
+                        # If the value has been updated.
+                        if v != new_val:
+                            if k == "sha1" and "SNAPSHOT" in new_asset.artifact:
+                                # If it's the sha1 property and the version is in SNAPSHOT, comment it out but still update the value.
+                                new_line = "    #" + k + " = \"" + new_val + "\",\n"
+                            else:
+                                # If it's the repository property, process it to match the appropriate value.
+                                if k == "repository":
+                                    if ":" in new_val:
+                                        new_val = new_val.replace(':', '')
+                                    if new_val == "WANDISCO":
+                                        new_val = new_val + "_ASSETS"
+                                new_line = "    " + k + " = \"" + new_val + "\",\n"
+                # Write the line
+                data[count] = new_line
+
+    # Write the changes to the file.
+    with open(filename, 'w') as file:
+        file.writelines(data)
+
+
+def print_dependency_management_report(assets_to_update, skipped_assets, fail_if_any_updates):
+    """
+    Prints a report for dependency management listing assets updated/skipped.
+    :param assets_to_update:  List of assets that were updated/have updates.
+    :param skipped_assets: List of assets that were skipped.
+    :param fail_if_any_updates: If true, script will fail if there were any assets requiring updates.
+    """
+    if fail_if_any_updates:
+        print("Out of Date Assets:")
+    else:
+        print("Updated Assets:")
+
+    for name, asset in assets_to_update.items():
+        split_artifact = asset.artifact.split(':')
+        print("    " + split_artifact[0] + ":" + split_artifact[1] + " " + asset.old_version + " -> " + split_artifact[2])
+
+    print("Skipped Assets: (Already same version as the bom)")
+    for name, asset in skipped_assets.items():
+        print("    " + asset.artifact)
+
+    if fail_if_any_updates and len(assets_to_update) > 0:
+        print("Check failed as there are out of date dependencies.", file=stderr)
+        exit(1)
+
+
 def assets_from_directory_walk(pathname, matcher=".+.jar$"):
     """Create a list of assets by walking the given directory tree looking
     for .jar file and build the assets by inspecting the manifest, filename
@@ -386,6 +537,11 @@ def asset_from_repo(asset, repo_name):
     `repo_name' for the latest corresponding asset and return a copy with
     the new SHA1 digest.
     """
+
+    # If we don't have a repository name, try with MAVEN_CENTRAL.
+    if not repo_name:
+        repo_name = "MAVEN_CENTRAL:"
+
     vendor,name,version = asset.artifact.split(':')
 
     jar_name = "{0}-{1}.jar".format(name, version)
@@ -398,7 +554,7 @@ def asset_from_repo(asset, repo_name):
 
     new_asset = copy(asset)
 
-    if (verbose):
+    if verbose:
         print("Checking {0} for {1} ({2})...".format(repo_name, jar_name, asset.sha1))
 
     # We always pass a fake SHA1 to this command as we want it to fail
@@ -421,7 +577,7 @@ def asset_from_repo(asset, repo_name):
         # subsequent replace operation will be a no-op which is
         # safe. The verbose log will show found/not found assets.
         if new_sha:
-            if (verbose):
+            if verbose:
                 print("\tFound: {0}".format(new_sha))
             new_asset.sha1 = new_sha
         elif verbose:
@@ -537,6 +693,78 @@ def replace_shas_in_file(groupA, groupB, enable_shas = False):
             print("Command Failed: {0}\n{1}".format(' '.join(cmd), e), file=stderr)
 
 
+def check_for_snapshot_assets(build_file_assets):
+    """
+    Prints any snapshot assets.
+    :param build_file_assets: The set of assets to check.
+    :return: The number of snapshot assets found.
+    """
+    num_of_snapshots = 0
+    for asset_group in build_file_assets:
+        for asset in asset_group.assets:
+            if "-snapshot" in asset.artifact.lower():
+                print(str(asset.artifact))
+                num_of_snapshots += 1
+    return num_of_snapshots
+
+
+def read_bom_properties(version, matcher):
+    """
+    Gets alm-common-combined-bom properties from artifactory
+    and reads them in filtering out any properties we don't want.
+    :return:
+    """
+    tmp_dir = "target"
+    if not path.exists(tmp_dir):
+        mkdir(tmp_dir)
+
+    project = "alm-common-combined-bom"
+
+    # Get the properties file.
+    cmd = ["mvn", "dependency:copy", "-Dartifact=com.wandisco:" + project + ":" + version + ":properties",
+           "-DoutputDirectory=" + tmp_dir]
+    properties_file = None
+    try:
+        # Call the command.
+        subprocess.check_output(cmd)
+    except Exception as e:
+        print("Command Failed: {0}\n{1}".format(' '.join(cmd), e), file=stderr)
+        exit(1)
+
+    find_filename_command = "ls " + tmp_dir + " | grep alm-common-combined-bom"
+    try:
+        # Get the file name.
+        properties_file = tmp_dir + "/" + subprocess.check_output(find_filename_command, shell=True).strip()
+    except Exception as e:
+        print("Command Failed: {0}\n{1}".format(find_filename_command, e), file=stderr)
+        exit(1)
+
+    properties = {}
+
+    # Exit if unable to get the properties file.
+    if not path.exists(properties_file):
+        print("Properties file for " + project + "-" + version + " does not exist!", file=stderr)
+        if path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+        exit(1)
+
+    # Read and filter properties.
+    with open(properties_file, "rt") as f:
+        for line in f:
+            l = line.strip()
+            if l and not l.startswith("#"):
+                key_value = l.split("=")
+                key = key_value[0].strip()
+
+                if re.match(matcher, key):
+                    value = "=".join(key_value[1:]).strip().strip('"')
+                    properties[key] = value
+                elif verbose:
+                    print("Skipping property " + key + " because it does not match the filter.")
+
+    return properties
+
+
 ##-------------------------------------------------------------------------
 ## Utility functions
 ##-------------------------------------------------------------------------
@@ -593,6 +821,46 @@ def file_walk(pathname, matcher):
     return [f for f in filenames if regex.match(f)]
 
 
+def check_dependencies_against_bom(asset_filter, build_file_assets):
+    """
+    Performs a dependency check.
+    :param asset_filter: The filter to choose what to check/update.
+    :param build_file_assets: The assets from the build file.
+    """
+    print("Starting dependency management check")
+
+    # Read the properties from alm-common-bom
+    properties = read_bom_properties(args.update_version, asset_filter)
+
+    # Figure out which of the filtered assets to update or skip.
+    assets_to_update, skipped_assets = process_assets(properties, build_file_assets, args.check)
+
+    # Print a report of any assets to update/need updating or skipped.
+    print_dependency_management_report(assets_to_update, skipped_assets, args.check)
+
+
+def update_dependencies_from_bom(asset_filter, build_file_assets):
+    """
+    Performs a dependency update.
+    :param asset_filter: The filter to choose what to check/update.
+    :param build_file_assets: The assets from the build file.
+    """
+
+    print("Starting dependency management update")
+
+    # Read the properties from alm-common-bom
+    properties = read_bom_properties(args.update_version, asset_filter)
+
+    # Figure out which of the filtered assets to update or skip.
+    assets_to_update, skipped_assets = process_assets(properties, build_file_assets, args.check)
+
+    # Update assets that require updating.
+    update_bazel_file("WORKSPACE", assets_to_update)
+
+    # Print a report of any assets to update/need updating or skipped.
+    print_dependency_management_report(assets_to_update, skipped_assets, args.check)
+
+
 ##-------------------------------------------------------------------------
 ## Main
 ##-------------------------------------------------------------------------
@@ -629,6 +897,14 @@ def main(args):
         if debug:
             asset.print_contents_summary()
 
+    # if '-u', update assets to version in alm-common-bom
+    if args.update_version:
+        if args.check:
+            check_dependencies_against_bom(asset_filter, build_file_assets)
+        else:
+            update_dependencies_from_bom(asset_filter, build_file_assets)
+        exit(0)
+
     # If '-c' just check contents of bazel files and return before any of
     # the patching functionality. Errors should be resolved before using
     # the script:
@@ -637,6 +913,11 @@ def main(args):
         for asset in build_file_assets:
             issues += asset.print_validation_summary()
         exit(issues)
+
+    # if '-s', check for any snapshot assets
+    if args.snapshot_check:
+        num_of_snapshots = check_for_snapshot_assets(build_file_assets)
+        exit(num_of_snapshots)
 
     # Get a flattened list of all assets from the build files here to
     # check if we need to proceed. We also pass this as the reference
@@ -693,6 +974,10 @@ if __name__ == '__main__':
 
     parser.add_argument('-c','--check', action='store_true',
                         help="Only validate assets in bazel files.")
+    parser.add_argument('-s','--snapshot_check', action='store_true',
+                        help="Check if any assets are in -SNAPSHOT")
+    parser.add_argument('-u','--update_version',
+                        help="Update assets to version in alm common combined bom")
     parser.add_argument('-e','--enable', action='store_true',
                         help="If a SHA being patched is commented out, also uncomment it.")
     parser.add_argument('-f','--filter',

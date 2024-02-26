@@ -301,7 +301,6 @@ public class Daemon extends SiteProgram {
             logger.atInfo().log("caught shutdown, cleaning up");
             stop();
           });
-
       logger.atInfo().log("Gerrit Code Review %s ready", myVersion());
 
       // Signal all waiting contexts that we are up and running
@@ -467,7 +466,7 @@ public class Daemon extends SiteProgram {
       /** Add all replication modules now */
       ReplicatedConfiguration replicatedConfiguration =
           cfgInjector.getInstance(ReplicatedConfiguration.class);
-      if (!replicatedConfiguration.getConfigureReplication().isReplicationEnabled()) {
+      if (!replicatedConfiguration.getAllowReplication().isReplicationEnabled()) {
         //if replication is disabled then use the dummy module
         modules.add(new NonReplicatedCoordinatorModule());
       } else {

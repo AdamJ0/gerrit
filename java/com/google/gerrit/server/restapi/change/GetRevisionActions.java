@@ -19,6 +19,7 @@ import com.google.common.hash.Hashing;
 import com.google.gerrit.extensions.common.ActionInfo;
 import com.google.gerrit.extensions.restapi.ETagView;
 import com.google.gerrit.extensions.restapi.Response;
+import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.reviewdb.server.ReviewDb;
 import com.google.gerrit.server.CurrentUser;
 import com.google.gerrit.server.change.ActionJson;
@@ -27,6 +28,7 @@ import com.google.gerrit.server.change.RevisionResource;
 import com.google.gerrit.server.config.GerritServerConfig;
 import com.google.gerrit.server.permissions.PermissionBackendException;
 import com.google.gerrit.server.query.change.ChangeData;
+import com.google.gerrit.server.query.change.InternalChangeQuery;
 import com.google.gerrit.server.submit.ChangeSet;
 import com.google.gerrit.server.submit.MergeSuperSet;
 import com.google.gwtorm.server.OrmException;
@@ -36,11 +38,13 @@ import com.google.inject.Provider;
 import com.google.inject.Singleton;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Optional;
 import org.eclipse.jgit.lib.Config;
 
 @Singleton
 public class GetRevisionActions implements ETagView<RevisionResource> {
   private final ActionJson delegate;
+  private final Provider<InternalChangeQuery> queryProvider;
   private final Config config;
   private final Provider<ReviewDb> dbProvider;
   private final Provider<MergeSuperSet> mergeSuperSet;
@@ -52,11 +56,13 @@ public class GetRevisionActions implements ETagView<RevisionResource> {
       Provider<ReviewDb> dbProvider,
       Provider<MergeSuperSet> mergeSuperSet,
       ChangeResource.Factory changeResourceFactory,
+      Provider<InternalChangeQuery> queryProvider,
       @GerritServerConfig Config config) {
     this.delegate = delegate;
     this.dbProvider = dbProvider;
     this.mergeSuperSet = mergeSuperSet;
     this.changeResourceFactory = changeResourceFactory;
+    this.queryProvider = queryProvider;
     this.config = config;
   }
 
@@ -70,17 +76,24 @@ public class GetRevisionActions implements ETagView<RevisionResource> {
     Hasher h = Hashing.murmur3_128().newHasher();
     CurrentUser user = rsrc.getUser();
     try {
-      rsrc.getChangeResource().prepareETag(h, user);
       h.putBoolean(MergeSuperSet.wholeTopicEnabled(config));
       ReviewDb db = dbProvider.get();
       ChangeSet cs = mergeSuperSet.get().completeChangeSet(db, rsrc.getChange(), user);
       for (ChangeData cd : cs.changes()) {
         changeResourceFactory.create(cd.notes(), user).prepareETag(h, user);
       }
+      hashMergeabilityStatus(h, rsrc.getChange().getId());
       h.putBoolean(cs.furtherHiddenChanges());
     } catch (IOException | OrmException | PermissionBackendException e) {
       throw new OrmRuntimeException(e);
     }
     return h.hash().toString();
+  }
+
+  private void hashMergeabilityStatus(Hasher h, Change.Id changeId) throws OrmException {
+    for (ChangeData changeFromIndex : queryProvider.get().byLegacyChangeId(changeId)) {
+      Optional<Boolean> isMergeable = Optional.ofNullable(changeFromIndex.isMergeable());
+      isMergeable.ifPresent(h::putBoolean);
+    }
   }
 }

@@ -36,6 +36,7 @@ public class ReplicatedIncomingProjectIndexEventProcessor extends AbstractReplic
 
   @Override
   public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedIncomingProjectIndexEventProcessor.class);
     unsubscribeEvent(this);
   }
 
@@ -71,8 +72,10 @@ public class ReplicatedIncomingProjectIndexEventProcessor extends AbstractReplic
     // then we will delete the index. Otherwise, it is a normal reindex.
     try {
       if (projectIndexEvent.isDeleteIndex()) {
+        logger.atFine().log("Calling deleteIndexNoRepl for %s", projectIndexEvent.getIdentifier());
         getIndexer().deleteIndexNoRepl(projectIndexEvent.getIdentifier());
       } else {
+        logger.atFine().log("Calling indexNoRepl for %s", projectIndexEvent.getIdentifier());
         getIndexer().indexNoRepl(projectIndexEvent.getIdentifier());
       }
     }catch (IOException e){

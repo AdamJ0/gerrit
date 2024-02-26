@@ -4,10 +4,9 @@ import com.google.common.base.Strings;
 import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
+import com.google.gerrit.server.replication.processors.ReplicatedStoppable;
 import com.google.inject.Singleton;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.security.InvalidParameterException;
@@ -26,7 +25,7 @@ import java.util.concurrent.TimeUnit;
  * replicated tasks out to the thread pool for completion by any thread in the pool.
  */
 @Singleton
-public class ReplicatedScheduling {
+public class ReplicatedScheduling implements ReplicatedStoppable {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   private final ConcurrentHashMap<String, ReplicatedEventTask> eventsFilesInProgress; // map of project to event file of work in progress.
@@ -133,6 +132,7 @@ public class ReplicatedScheduling {
   }
 
 
+  @Override
   public void stop() {
     logger.atInfo().log("Shutting down scheduled thread pool for incoming / outgoing workers");
 
@@ -223,7 +223,7 @@ public class ReplicatedScheduling {
         // make a quick check to decide whether this is a skipped over file, or if its actually in progress from an earlier
         // iteration.
         ReplicatedEventTask wipTask = eventsFilesInProgress.get(projectName);
-        if ( wipTask.getEventsFileToProcess() == eventsFileToProcess ){
+        if ( wipTask.getEventsFileToProcess().equals(eventsFileToProcess) ){
           // this exact file is in progress - lets just skip over it, but DO NOT add to skip list as its in progress
           // if it succeeds its completed, and if it fails its prepended onto the start of the skipped list.
           logger.atFine().log("Not scheduling file: %s as its in progress for the project already. ", eventsFileToProcess);
@@ -588,7 +588,7 @@ public class ReplicatedScheduling {
 
       File eventsFileToReallyProcess = getFirstSkippedProjectEventFile(projectName);
 
-      if (eventsFileToReallyProcess == eventsFileToProcess) {
+      if (eventsFileToReallyProcess.equals(eventsFileToProcess)) {
         logger.atSevere().log("Invalid ordering of events processing discovered, where it picked up last event as LIFO not FIFO. File: %s", eventsFileToProcess);
         // Failing this entire project, and do no more processing on it.
         // When we finish this iteration we can pick up this project fresh with new state - and hopefully recover!

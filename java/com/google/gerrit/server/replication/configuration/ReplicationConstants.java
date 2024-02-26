@@ -38,6 +38,8 @@ public final class ReplicationConstants {
   public static final String GERRIT_EVENTS_BACKOFF_CEILING_PERIOD = "gerrit.replicated.events.ceiling.backoff.period";
   public static final String GERRIT_MAX_NUM_EVENTS_RETRIES = "gerrit.replicated.events.max.backoff.retries";
 
+  public static final String GERRIT_FILE_SYSTEM_RESOLUTION = "gerrit.replicated.filesystem.resolution.ms";
+
   public static final String GERRIT_MAX_LOGGING_PERIOD_SECS = "gerrit.replicated.logging.atmost.period";
 
   public static final String GERRIT_MINUTES_SINCE_CHANGE_LAST_INDEXED_CHECK_PERIOD = "gerrit.minutes.since.change.last.indexed.check.period";
@@ -46,6 +48,8 @@ public final class ReplicationConstants {
   //Events can be skipped by providing a comma seperated list of event types.
   //e.g, TopicChangedEvent, ReviewerDeletedEvent, ReviewerUpdatedEvent
   public static final String GERRIT_EVENT_TYPES_TO_BE_SKIPPED = "gerrit.event.types.disabled.list";
+
+  public static final String GERRIT_REPLICATED_EVENTS_ENABLED_SEND = "gerrit.replicated.events.enabled.send";
 
 
   /*****************************************************************************************

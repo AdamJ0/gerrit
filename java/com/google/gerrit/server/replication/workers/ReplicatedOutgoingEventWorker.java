@@ -5,6 +5,7 @@ import com.google.gerrit.server.replication.PersistedEventInformation;
 import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gerrit.server.replication.SingletonEnforcement;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
+import com.google.gerrit.server.replication.processors.ReplicatedStoppable;
 import com.google.gson.Gson;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
 
@@ -15,7 +16,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 
-public class ReplicatedOutgoingEventWorker implements Runnable {
+public class ReplicatedOutgoingEventWorker implements Runnable, ReplicatedStoppable {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   // Queue of events to replicate, note the queue is held here so that the we can add to the queue from feeders,
@@ -45,6 +46,11 @@ public class ReplicatedOutgoingEventWorker implements Runnable {
     this.replicatedConfiguration = replicatedEventsCoordinator.getReplicatedConfiguration();
     this.gson = replicatedEventsCoordinator.getGson();
     SingletonEnforcement.registerClass(ReplicatedOutgoingEventWorker.class);
+  }
+
+  @Override
+  public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedOutgoingEventWorker.class);
   }
 
   public void queueEventWithOutgoingWorker(EventWrapper event) {
@@ -204,7 +210,7 @@ public class ReplicatedOutgoingEventWorker implements Runnable {
           {
             // The rename was successful
             logger.atInfo().log("RE Created new file [ %s ] for project [ %s ] to be proposed",
-                persistedEventInformation.getFinalEventFileName(), persistedEventInformation.getProjectName() );
+                persistedEventInformation.getFinalEventFile().getName(), persistedEventInformation.getProjectName() );
           }
         }
         //then remove entry from the map

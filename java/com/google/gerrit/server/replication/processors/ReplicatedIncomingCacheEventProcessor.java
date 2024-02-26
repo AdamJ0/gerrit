@@ -8,8 +8,10 @@ import com.google.gerrit.server.replication.ReplicatedCacheWrapper;
 import com.google.gerrit.server.replication.ReplicatorMetrics;
 import com.google.gerrit.server.replication.SingletonEnforcement;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
+import com.google.gerrit.server.replication.exceptions.ReplicatedEventsImmediateFailWithoutBackoffException;
 import com.google.gerrit.server.replication.exceptions.ReplicatedEventsUnknownTypeException;
 import com.google.gerrit.server.project.ProjectCache;
+import com.google.gson.internal.LinkedTreeMap;
 import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
 
 import java.lang.reflect.InvocationTargetException;
@@ -20,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.CACHE_EVENT;
@@ -51,6 +54,7 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
 
   @Override
   public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedIncomingCacheEventProcessor.class);
     unsubscribeEvent(this);
   }
 
@@ -61,25 +65,32 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
   }
 
   private void applyCacheMethodOrEviction(CacheKeyWrapper cacheKeyWrapper) {
-    try {
-      cacheKeyWrapper.rebuildOriginal();
-    } catch (ClassNotFoundException e) {
-      logger.atSevere().withCause(e).log("Event has been lost. Could not find class %s to rebuild original event",
-          cacheKeyWrapper.getClass().getName());
-    }
+
     cacheKeyWrapper.replicated = true;
     cacheKeyWrapper.setNodeIdentity(Objects.requireNonNull(replicatedEventsCoordinator.getThisNodeIdentity()));
+
+    // explitally call this before anyone else makes any enquiries, although they should all be protected internally.
+    cacheKeyWrapper.rebuildOriginal();
 
     if (cacheKeyWrapper instanceof CacheObjectCallWrapper) {
       CacheObjectCallWrapper originalObj = (CacheObjectCallWrapper) cacheKeyWrapper;
       // Invokes a particular method on a cache. The CacheObjectCallWrapper carries the method
-      // to be invoked on the cache. At present, we make only two replicated cache method calls from ProjectCacheImpl.
-      applyMethodCallOnCache(originalObj.cacheName, originalObj.key, originalObj.otherMethodArgs, originalObj.methodName);
-      return;
+      // to be invoked on the cache. At present, we make only two replicated cache method calls from ProjectCacheImpl, but
+      // it is written generically to be called on any project dsm, with any number of args.
+      if ( originalObj.key instanceof List ){
+        applyMethodCallOnCache(originalObj.cacheName,
+            originalObj.methodName,
+            originalObj.getMethodArgs(),
+            originalObj.getMethodArgsTypes());
+        return;
+      }
+      logger.atSevere().log("Event cannot be processed, as the information is not of the expected type. The CacheKeyWrapper key field should be a List<>, CacheKeyWrapperDetails: %s",
+            cacheKeyWrapper.toString());
+      throw new ReplicatedEventsImmediateFailWithoutBackoffException("Invalid Event JSON - the key information has not been supplied correctly for cache key wrapper: " + cacheKeyWrapper);
     }
 
     // Perform an eviction for a specified key on the specified local cache
-    applyReplicatedEvictionFromCache(cacheKeyWrapper.cacheName, cacheKeyWrapper.key);
+    applyReplicatedEvictionFromCache(cacheKeyWrapper.cacheName, cacheKeyWrapper.getKeyAsOriginalType());
   }
 
 
@@ -114,7 +125,7 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
     }
   }
 
-  private void applyMethodCallOnCache(String cacheName, Object methodArg, List<Object> otherArgs, String methodName) {
+  private void applyMethodCallOnCache(final String cacheName, final String methodName, final List<Object> methodArgs, final List<String> methodArgTypes) {
     Object obj = cacheObjects.get(cacheName);
     if (obj == null) {
       // Failed to get a cache by the given name - return indicate failure - this wont change.
@@ -123,45 +134,50 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
           String.format("CACHE call could not be made, as cache does not exist. %s", cacheName));
     }
 
-    // Determine if we have a method that has more than one argument for the method signature. The main argument
-    // for the method signature is usually Project.NameKey however methods can now support having other arguments
-    // supplied.
-    List<Object> remainingArgs = new ArrayList<>();
-    if(otherArgs != null){
-      remainingArgs.addAll(otherArgs);
-    }
-
-    // Find out what the class types of the other arguments are supplied to the method. This is required
-    // in order to find the method with the name and matching signature.
-    // Setting a size of 10 although the number of arguments will in reality be much smaller than this.
-    List<Class<?>> remainingArgClassTypes = null;
-
-    if(remainingArgs.size() > 0) {
-      Class<?>[] classTypes = new Class[10];
-      for (int n = 0; n < remainingArgs.size(); n++) {
-        classTypes[n] = remainingArgs.get(n).getClass();
-      }
-      // Filter and remove any nulls as we cannot have nulls when invoking method due to signature mismatch.
-      remainingArgClassTypes = Arrays.stream(classTypes).filter(Objects::nonNull).collect(Collectors.toList());
-    }
 
     try {
-      // The initial argument will be of the Project.NameKey type in most cases. If there are no other
-      // remaining arguments then we can look for a matching method name that has a single argument in its signature
-      if(remainingArgs.size() == 0) {
-
-        logger.atFine().log("Looking for method %s...", methodName);
-        Method method = obj.getClass().getMethod(methodName, methodArg.getClass());
-        method.invoke(obj, methodArg);
+      // Calling signature requests is different depending on whether we have arguments or not.
+      if (methodArgs.isEmpty()) {
+        logger.atFine().log("Looking for method %s with no arguments...", methodName);
+        Method method = obj.getClass().getMethod(methodName);
+        method.invoke(obj);
         logger.atFine().log("Success for %s!", methodName);
+      }
+      else {
+        List<Class<?>> remainingArgClassTypes = null;
 
-      } else {
+        // we have been given methodArgs - lets check arg types and then invoke.
+        // check method arg types, use them if present - otherwise its an older api type and we need to work them out.
+        // any mismatch though it invalid and throw.
+        if (methodArgTypes.isEmpty()) {
+          logger.atWarning().atMostEvery(5, TimeUnit.MINUTES).log("Cache call must be from an old event file - as it doesn't contain event types - attempting fallback for compatibility. CacheName %s, MethodName %s, MethodArgs %s",
+              cacheName, methodName, methodArgs);
+          // Fallback by using the actual arg to get its source classType
+          List<Class<?>> classTypes = new ArrayList<>();
+          for (int n = 0; n < methodArgs.size(); n++) {
+            classTypes.add(methodArgs.get(n).getClass());
+          }
+
+          // Filter and remove any nulls as we cannot have nulls when invoking method due to signature mismatch.
+          remainingArgClassTypes = Arrays.stream((Class<?>[])classTypes.toArray()).filter(Objects::nonNull).collect(Collectors.toList());
+        } else if ( methodArgs.size() != methodArgTypes.size() ) {
+          throw new ReplicatedEventsUnknownTypeException(
+              String.format("Unable to continue as method arg types count %s doesn't match the event args count: %s",
+              methodArgs.size(), methodArgTypes.size()));
+        } else {
+          // default approach - use the types supplied and get actual class from each as they are 1:1 mapping.
+          remainingArgClassTypes = methodArgTypes.stream().map(u -> {
+            try {
+              return Class.forName(u);
+            } catch (ClassNotFoundException e) {
+              throw new ReplicatedEventsUnknownTypeException("Unable to find events base argument type: " + u.toString(), e);
+            }
+          }).collect(Collectors.toList());
+        }
+
         // We have remaining arguments so lets look for a method signature that matches.
         logger.atFine().log("Looking for method %s with the following signature %s",
                 methodName, remainingArgClassTypes);
-
-        // The Project.NameKey must be the first argument in the method signature, so placing it at index 0.
-        remainingArgClassTypes.add(0, methodArg.getClass());
 
         // The remainingArgClassTypes array is a filtered array (no nulls) of class types. If a method is
         // found with a matching name and matching signature of class types then we will be able to invoke
@@ -170,13 +186,12 @@ public class ReplicatedIncomingCacheEventProcessor extends AbstractReplicatedEve
         Method method = obj.getClass().getMethod(methodName, remainingTypesArray);
 
         // Add the first argument at index 0 so they call all be passed together in a single array for invocation.
-        remainingArgs.add(0, methodArg);
-        method.invoke(obj, remainingArgs.toArray());
-
+        method.invoke(obj, methodArgs.toArray());
         logger.atFine().log("Success for %s!", methodName);
       }
-    } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException | SecurityException ex) {
-      final String err = String.format("CACHE method call has been lost, could not call %s. %s", cacheName, methodName);
+    } catch (IllegalAccessException | IllegalArgumentException | InvocationTargetException | NoSuchMethodException |
+             SecurityException  ex) {
+      final String err = String.format("CACHE method call has been lost, could not call %s. %s Reason: %s", cacheName, methodName, ex.getMessage());
       logger.atSevere().withCause(ex).log(err);
       throw new ReplicatedEventsUnknownTypeException(err);
     }

@@ -8,25 +8,25 @@ import org.eclipse.jgit.lib.Config;
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.REPLICATION_DISABLED;
 
 @Singleton //Not guice bound but makes it clear that it's a singleton
-public final class ConfigureReplication {
+public final class AllowReplication {
 
   // A flag, which allow there to be no application properties and for us to behave like a normal vanilla non replicated environment.
   private Boolean replicationDisabled = null;
   private Config config;
 
-  private static volatile ConfigureReplication INSTANCE;
+  private static volatile AllowReplication INSTANCE;
 
-  private ConfigureReplication(Config config) {
+  private AllowReplication(Config config) {
     this.config = config;
   }
 
   //Get singleton instance
-  public static ConfigureReplication getInstance(Config config) {
+  public static AllowReplication getInstance(Config config) {
     if(INSTANCE == null) {
-      synchronized (ConfigureReplication.class) {
+      synchronized (AllowReplication.class) {
         if(INSTANCE ==  null) {
-          INSTANCE = new ConfigureReplication(config);
-          SingletonEnforcement.registerClass(ConfigureReplication.class);
+          INSTANCE = new AllowReplication(config);
+          SingletonEnforcement.registerClass(AllowReplication.class);
         }
       }
     }

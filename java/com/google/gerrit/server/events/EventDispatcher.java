@@ -14,7 +14,6 @@
 
 package com.google.gerrit.server.events;
 
-import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.reviewdb.client.Branch;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.reviewdb.client.Project;
@@ -61,13 +60,4 @@ public interface EventDispatcher {
    * @throws PermissionBackendException on failure of permission checks
    */
   void postEvent(Event event) throws OrmException, PermissionBackendException;
-
-  /**
-   * Post a stream event which will get replicated.
-   *
-   * <p>A stream event is an event which actually triggers
-   * a server event.
-   * @param event The event to post.
-   */
-  void postEvent(ReplicatedStreamEvent event);
 }

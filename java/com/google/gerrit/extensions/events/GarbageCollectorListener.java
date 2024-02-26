@@ -20,7 +20,7 @@ import java.util.Properties;
 /** Notified whenever the garbage collector has run successfully on a project. */
 @ExtensionPoint
 public interface GarbageCollectorListener {
-  interface Event extends ProjectEvent, ReplicatedStreamEvent {
+  interface Event extends ProjectEvent {
     /**
      * @return Properties describing the result of the garbage collection performed by JGit.
      * @see org.eclipse.jgit.api.GarbageCollectCommand#call()

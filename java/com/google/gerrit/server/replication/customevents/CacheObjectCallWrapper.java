@@ -13,8 +13,9 @@
  
 package com.google.gerrit.server.replication.customevents;
 
-
+import java.util.Arrays;
 import java.util.List;
+
 /**
  * This is a wrapper for the cache method call to be replicated,
  * so that it's easier to rebuild the "original" on the landing
@@ -24,14 +25,37 @@ import java.util.List;
 public class CacheObjectCallWrapper extends CacheKeyWrapper {
   public String methodName;
 
-  // Methods in the cache classes can now support having more than one method argument passed.
-  public List<Object> otherMethodArgs;
-
-  public CacheObjectCallWrapper(String cacheName, String method, Object key, List<Object> otherMethodArgs, String thisNodeIdentity) {
-    super(cacheName,key, thisNodeIdentity);
+  public CacheObjectCallWrapper(String cacheName, String method, List<?> methodArgs, String thisNodeIdentity) {
+    super(cacheName, methodArgs, thisNodeIdentity);
     this.methodName = method;
-    this.otherMethodArgs = otherMethodArgs;
   }
+
+  /**
+   * Helper to turn the key(Object) field in the base class, to be the List<Object>key, so it can be used correctly
+   * by the cache object call code, which may expect 0, 1, or many args.
+   * Note this must be a 1:1 mapping as an arrayList with key field.
+   * @return List<Object> representing the actual methodArgs
+   */
+  public List<Object> getMethodArgs(){
+    // this is the key field, rebuilt and returned as a List<?> where the class is the real class type rebuilt from original
+    // calling types.
+    return (List<Object>) getKeyAsOriginalType();
+  }
+
+  /**
+   * Helper to turn the keyType(Object) field in the base class, to be the List<String>keyType, so it can be used correctly
+   * by the cache object call code, which may expect 0, 1, or many args.
+   * Note this must be a 1:1 mapping as an arrayList with key field.
+   * @return List<String> representing the types of each methodArgs field
+   */
+  public List<String> getMethodArgsTypes(){
+    if ( keyType instanceof List){
+      return (List<String>) keyType;
+    }
+    // take this object and return it as a single item in the list (this shouldn't happen but jic ).
+    return Arrays.asList(keyType.toString());
+  }
+
 
   @Override public String toString() {
     final StringBuilder sb = new StringBuilder("CacheObjectCallWrapper{");

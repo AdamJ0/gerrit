@@ -15,10 +15,14 @@ package com.google.gerrit.server.replication;
 
 import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
+import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
+import com.wandisco.gerrit.gitms.shared.events.exceptions.InvalidEventJsonException;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.security.InvalidParameterException;
+import java.util.List;
 import java.util.Objects;
 
 import static com.google.gerrit.server.replication.workers.ReplicatedIncomingEventWorker.readFileToByteArrayOutputStream;
@@ -90,6 +94,24 @@ public class ReplicatedEventTask implements Runnable {
       replicatedEventsCoordinator.getReplicatedIncomingEventWorker().checkForFailureBackoff(this,
           replicatedEventsCoordinator.getReplicatedScheduling(), false, false,
           null, null);
+    }
+  }
+
+  /**
+   * Perform only a subset of calls, to read the file, and get the event wrappers all the same way that
+   * the real code does, just doesn't increment the metrics, or publish the events to gerrit.
+   *
+   * TEST ONLY
+   */
+  public List<EventWrapper> getEventsDirectlyFromFile() throws IOException, InvalidEventJsonException {
+
+    try (ByteArrayOutputStream bos = readFileToByteArrayOutputStream(eventsFileToProcess, replicatedEventsCoordinator
+        .getReplicatedConfiguration().isIncomingEventsAreGZipped())) {
+
+      // we used to process the events directly - but instead, we need to check what projects its for,
+      // and try to hand off this file for another thread to do the processing.
+      // handy to know when not to process ( used also by unit tests to test scheduling )
+      return replicatedEventsCoordinator.getReplicatedIncomingEventWorker().checkAndSortEvents(bos.toByteArray());
     }
   }
 

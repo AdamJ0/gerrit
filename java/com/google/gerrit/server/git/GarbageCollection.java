@@ -18,20 +18,15 @@ import com.google.common.collect.Sets;
 import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.common.data.GarbageCollectionResult;
 import com.google.gerrit.extensions.events.GarbageCollectorListener;
-import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
+import com.google.gerrit.extensions.registration.DynamicSet;
 import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.server.config.GcConfig;
 import com.google.gerrit.server.extensions.events.AbstractNoNotifyEvent;
-import com.google.gerrit.server.extensions.events.isReplicatedStreamEvent;
-import com.google.gerrit.server.plugincontext.PluginSetContext;
-import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.inject.Inject;
 import java.io.PrintWriter;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
-import java.util.StringJoiner;
-
 import org.eclipse.jgit.api.GarbageCollectCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
@@ -48,8 +43,7 @@ public class GarbageCollection {
   private final GitRepositoryManager repoManager;
   private final GarbageCollectionQueue gcQueue;
   private final GcConfig gcConfig;
-  private final PluginSetContext<GarbageCollectorListener> listeners;
-  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
+  private final DynamicSet<GarbageCollectorListener> listeners;
 
   public interface Factory {
     GarbageCollection create();
@@ -60,13 +54,11 @@ public class GarbageCollection {
       GitRepositoryManager repoManager,
       GarbageCollectionQueue gcQueue,
       GcConfig config,
-      PluginSetContext<GarbageCollectorListener> listeners,
-      ReplicatedEventsCoordinator replicatedEventsCoordinator) {
+      DynamicSet<GarbageCollectorListener> listeners) {
     this.repoManager = repoManager;
     this.gcQueue = gcQueue;
     this.gcConfig = config;
     this.listeners = listeners;
-    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   public GarbageCollectionResult run(List<Project.NameKey> projectNames) {
@@ -120,8 +112,14 @@ public class GarbageCollection {
     if (!listeners.iterator().hasNext()) {
       return;
     }
-    Event event = new Event(p, statistics, replicatedEventsCoordinator.getThisNodeIdentity());
-    listeners.runEach(l -> l.onGarbageCollected(event));
+    Event event = new Event(p, statistics);
+    for (GarbageCollectorListener l : listeners) {
+      try {
+        l.onGarbageCollected(event);
+      } catch (RuntimeException e) {
+        logger.atWarning().withCause(e).log("Failure in GarbageCollectorListener");
+      }
+    }
   }
 
   private static void logGcInfo(Project.NameKey projectName, String msg) {
@@ -189,75 +187,24 @@ public class GarbageCollection {
     }
   }
 
-  /**
-   * fire stream event off for its respective listeners to pick up.
-   * @param streamEvent GarbageCollectorListener.Event
-   */
-  public void fire(GarbageCollectorListener.Event streamEvent) {
-    if (listeners.isEmpty()) {
-      return;
-    }
-    listeners.runEach(l -> l.onGarbageCollected(streamEvent));
-  }
-
-  @isReplicatedStreamEvent
-  public static class Event extends AbstractNoNotifyEvent
+  private static class Event extends AbstractNoNotifyEvent
       implements GarbageCollectorListener.Event {
-
-    private final Project.NameKey projectName;
+    private final Project.NameKey p;
     private final Properties statistics;
-    Event(Project.NameKey projectName, Properties statistics, final String nodeIdentity) {
-      super(nodeIdentity);
-      this.projectName = projectName;
+
+    Event(Project.NameKey p, Properties statistics) {
+      this.p = p;
       this.statistics = statistics;
     }
 
     @Override
     public String getProjectName() {
-      return projectName.get();
+      return p.get();
     }
 
     @Override
     public Properties getStatistics() {
       return statistics;
     }
-
-    @Override
-    public String nodeIdentity() {
-      return super.getNodeIdentity();
-    }
-
-    @Override
-    public String className() {
-      return this.getClass().getName();
-    }
-
-    @Override
-    public String projectName() {
-      return getProjectName();
-    }
-
-    @Override
-    public void setStreamEventReplicated(boolean replicated) {
-      hasBeenReplicated = replicated;
-    }
-
-    @Override
-    public boolean replicationSuccessful() {
-      return hasBeenReplicated;
-    }
-
-    @Override
-    public String toString() {
-      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
-              .add("projectName=" + projectName)
-              .add("statistics=" + statistics)
-              .add("hasBeenReplicated=" + super.hasBeenReplicated)
-              .add("eventTimestamp=" + getEventTimestamp())
-              .add("eventNanoTime=" + getEventNanoTime())
-              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
-              .toString();
-    }
-
   }
 }

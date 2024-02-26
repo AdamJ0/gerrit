@@ -16,16 +16,9 @@ package com.google.gerrit.server.extensions.events;
 
 import com.google.gerrit.extensions.api.changes.NotifyHandling;
 import com.google.gerrit.extensions.events.GerritEvent;
-import com.wandisco.gerrit.gitms.shared.events.ReplicatedEvent;
 
 /** Intermediate class for events that do not support notification type. */
-public abstract class AbstractNoNotifyEvent extends ReplicatedEvent implements GerritEvent {
-
-  protected boolean hasBeenReplicated;
-
-  protected AbstractNoNotifyEvent(final String nodeId) {
-      super(nodeId);
-  }
+public abstract class AbstractNoNotifyEvent implements GerritEvent {
   @Override
   public NotifyHandling getNotify() {
     return NotifyHandling.NONE;

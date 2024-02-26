@@ -18,15 +18,12 @@ import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.extensions.api.changes.NotifyHandling;
 import com.google.gerrit.extensions.common.ChangeInfo;
 import com.google.gerrit.extensions.events.ChangeRevertedListener;
-import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
-import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import java.sql.Timestamp;
-import java.util.StringJoiner;
 
 @Singleton
 public class ChangeReverted {
@@ -34,13 +31,11 @@ public class ChangeReverted {
 
   private final PluginSetContext<ChangeRevertedListener> listeners;
   private final EventUtil util;
-  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
   @Inject
-  ChangeReverted(PluginSetContext<ChangeRevertedListener> listeners, EventUtil util, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
+  ChangeReverted(PluginSetContext<ChangeRevertedListener> listeners, EventUtil util) {
     this.listeners = listeners;
     this.util = util;
-    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   public void fire(Change change, Change revertChange, Timestamp when) {
@@ -48,31 +43,18 @@ public class ChangeReverted {
       return;
     }
     try {
-      Event event = new Event(util.changeInfo(change), util.changeInfo(revertChange), when,
-              replicatedEventsCoordinator.getThisNodeIdentity());
+      Event event = new Event(util.changeInfo(change), util.changeInfo(revertChange), when);
       listeners.runEach(l -> l.onChangeReverted(event));
     } catch (OrmException e) {
       logger.atSevere().withCause(e).log("Couldn't fire event");
     }
   }
 
-  /**
-   * fire stream event off for its respective listeners to pick up.
-   * @param streamEvent ChangeRevertedListener.Event
-   */
-  public void fire(ChangeRevertedListener.Event streamEvent) {
-    if (listeners.isEmpty()) {
-      return;
-    }
-    listeners.runEach(l -> l.onChangeReverted(streamEvent));
-  }
-
-  @isReplicatedStreamEvent
   private static class Event extends AbstractChangeEvent implements ChangeRevertedListener.Event {
     private final ChangeInfo revertChange;
 
-    Event(ChangeInfo change, ChangeInfo revertChange, Timestamp when, final String nodeIdentity) {
-      super(change, revertChange.owner, when, NotifyHandling.ALL, nodeIdentity);
+    Event(ChangeInfo change, ChangeInfo revertChange, Timestamp when) {
+      super(change, revertChange.owner, when, NotifyHandling.ALL);
       this.revertChange = revertChange;
     }
 
@@ -80,43 +62,5 @@ public class ChangeReverted {
     public ChangeInfo getRevertChange() {
       return revertChange;
     }
-
-    @Override
-    public String nodeIdentity() {
-      return super.getNodeIdentity();
-    }
-
-    @Override
-    public String className() {
-      return this.getClass().getName();
-    }
-
-    @Override
-    public String projectName() {
-      return getChange().project;
-    }
-
-    @Override
-    public void setStreamEventReplicated(boolean replicated) {
-      hasBeenReplicated = replicated;
-    }
-
-    @Override
-    public boolean replicationSuccessful() {
-      return hasBeenReplicated;
-    }
-
-
-    @Override
-    public String toString() {
-      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
-              .add("revertChange=" + revertChange)
-              .add("hasBeenReplicated=" + super.hasBeenReplicated)
-              .add("eventTimestamp=" + getEventTimestamp())
-              .add("eventNanoTime=" + getEventNanoTime())
-              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
-              .toString();
-    }
-
   }
 }

@@ -37,6 +37,11 @@ public class ReplicatedOutgoingProjectEventsFeed extends ReplicatedOutgoingEvent
     SingletonEnforcement.registerClass(ReplicatedOutgoingProjectEventsFeed.class);
   }
 
+  @Override
+  public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedOutgoingProjectEventsFeed.class);
+  }
+
   public void replicateProjectDeletion(String projectName, boolean preserve, String taskUuid) throws IOException {
     ProjectInfoWrapper projectInfoWrapper = new ProjectInfoWrapper(projectName, preserve, taskUuid, replicatedEventsCoordinator.getThisNodeIdentity());
     logger.atInfo().log("PROJECT About to call replicated project deletion event: %s, %s, %s",

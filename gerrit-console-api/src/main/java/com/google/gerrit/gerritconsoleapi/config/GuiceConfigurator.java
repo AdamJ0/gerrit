@@ -27,8 +27,14 @@ import com.google.gerrit.server.schema.*;
 
 import com.google.gerrit.server.securestore.DefaultSecureStore;
 import com.google.gerrit.server.securestore.SecureStoreClassName;
-import com.google.inject.*;
+import com.google.inject.CreationException;
+import com.google.inject.Key;
+import com.google.inject.Module;
+import com.google.inject.Injector;
+import com.google.inject.AbstractModule;
+import com.google.inject.Guice;
 
+import com.google.inject.ProvisionException;
 import com.google.inject.assistedinject.FactoryModuleBuilder;
 import com.google.inject.spi.Message;
 import com.google.inject.util.Providers;

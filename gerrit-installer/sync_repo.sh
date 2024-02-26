@@ -61,11 +61,11 @@ function die() {
 
 function sanity_checks() {
   # Check for required binaries:
-  if ! xmllint --testIO </dev/null >/dev/null 2>&1; then
+  if ! xmllint --version </dev/null >/dev/null 2>&1; then
     perr "Must have xmllint in your path"
   fi
   if ! curl --help </dev/null >/dev/null 2>&1; then
-    perr "Must have xmllint in your path"
+    perr "Must have curl in your path"
   fi
 
   # Check if anything failed:

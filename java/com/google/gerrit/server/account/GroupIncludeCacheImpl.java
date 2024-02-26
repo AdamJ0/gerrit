@@ -118,12 +118,27 @@ public class GroupIncludeCacheImpl implements GroupIncludeCache {
   /**
    * Asks the replicated coordinator for the instance of the ReplicatedOutgoingCacheEventsFeed and calls
    * replicateEvictionFromCache on it.
+   *   N.B. Always evict the group caches using the ALL_USERS project DSM.
    * @param name : Name of the cache to evict from.
    * @param value : Value to evict from the cache.
    */
-  private void replicateEvictionFromCache(String name, Object value) {
+  private void replicateEvictionFromCache(String name, AccountGroup.UUID value) {
     if(replicatedEventsCoordinator.isReplicationEnabled()) {
-      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value);
+      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value,
+          replicatedEventsCoordinator.getReplicatedConfiguration().getAllUsersName());
+    }
+  }
+  /**
+   * Asks the replicated coordinator for the instance of the ReplicatedOutgoingCacheEventsFeed and calls
+   * replicateEvictionFromCache on it.
+   *   N.B. Always evict the group caches using the ALL_USERS project DSM.
+   * @param name : Name of the cache to evict from.
+   * @param value : Value to evict from the cache.
+   */
+  private void replicateEvictionFromCache(String name, Account.Id value) {
+    if(replicatedEventsCoordinator.isReplicationEnabled()) {
+      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value,
+          replicatedEventsCoordinator.getReplicatedConfiguration().getAllUsersName());
     }
   }
 

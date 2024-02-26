@@ -146,8 +146,7 @@ public class ProjectIndexerImpl implements ProjectIndexer {
         }
       }
     }
-
-    if ( replicate) {
+    if ( replicate ) {
       replicateReindex(nameKey, false);
     }
   }

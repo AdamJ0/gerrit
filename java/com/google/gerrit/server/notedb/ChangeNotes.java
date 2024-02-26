@@ -188,8 +188,7 @@ public class ChangeNotes extends AbstractChangeNotes<ChangeNotes> {
 
     public ChangeNotes createWithAutoRebuildingDisabled(
         ReviewDb db, Project.NameKey project, Change.Id changeId) throws OrmException {
-      return new ChangeNotes(args, loadChangeFromDb(db, project, changeId), true, false, null)
-          .load();
+      return new ChangeNotes(args, loadChangeFromDb(db, project, changeId), true, false).load();
     }
 
     /**
@@ -205,12 +204,11 @@ public class ChangeNotes extends AbstractChangeNotes<ChangeNotes> {
 
     public ChangeNotes createForBatchUpdate(Change change, boolean shouldExist)
         throws OrmException {
-      return new ChangeNotes(args, change, shouldExist, false, null).load();
+      return new ChangeNotes(args, change, shouldExist, false).load();
     }
 
-    public ChangeNotes createWithAutoRebuildingDisabled(Change change, RefCache refs)
-        throws OrmException {
-      return new ChangeNotes(args, change, true, false, refs).load();
+    public ChangeNotes createWithAutoRebuildingDisabled(Change change) throws OrmException {
+      return new ChangeNotes(args, change, true, false).load();
     }
 
     // TODO(ekempin): Remove when database backend is deleted
@@ -478,7 +476,6 @@ public class ChangeNotes extends AbstractChangeNotes<ChangeNotes> {
   }
 
   private final boolean shouldExist;
-  private final RefCache refs;
 
   private Change change;
   private ChangeNotesState state;
@@ -499,15 +496,13 @@ public class ChangeNotes extends AbstractChangeNotes<ChangeNotes> {
 
   @VisibleForTesting
   public ChangeNotes(Args args, Change change) {
-    this(args, change, true, true, null);
+    this(args, change, true, true);
   }
 
-  private ChangeNotes(
-      Args args, Change change, boolean shouldExist, boolean autoRebuild, @Nullable RefCache refs) {
+  private ChangeNotes(Args args, Change change, boolean shouldExist, boolean autoRebuild) {
     super(args, change.getId(), PrimaryStorage.of(change), autoRebuild);
     this.change = new Change(change);
     this.shouldExist = shouldExist;
-    this.refs = refs;
   }
 
   public Change getChange() {
@@ -725,7 +720,10 @@ public class ChangeNotes extends AbstractChangeNotes<ChangeNotes> {
 
   @Override
   protected ObjectId readRef(Repository repo) throws IOException {
-    return refs != null ? refs.get(getRefName()).orElse(null) : super.readRef(repo);
+    Optional<RefCache> refsCache = RepoRefCache.getOptional(repo);
+    return refsCache.isPresent()
+        ? refsCache.get().get(getRefName()).orElse(null)
+        : super.readRef(repo);
   }
 
   @Override
@@ -754,8 +752,28 @@ public class ChangeNotes extends AbstractChangeNotes<ChangeNotes> {
         // ReviewDb claims NoteDb state exists, but meta ref isn't present: fall through and
         // auto-rebuild if necessary.
       }
-      RefCache refs = this.refs != null ? this.refs : new RepoRefCache(repo);
-      if (!NoteDbChangeState.isChangeUpToDate(state, refs, getChangeId())) {
+      RefCache refs;
+      RepoRefCache newRefCache = null;
+      Optional<RefCache> cachedRefCache = RepoRefCache.getOptional(repo);
+
+      if (cachedRefCache.isPresent()) {
+        refs = cachedRefCache.get();
+      } else {
+        newRefCache = new RepoRefCache(repo);
+        refs = newRefCache;
+      }
+
+      boolean changeUpToDate = true;
+      try {
+        changeUpToDate = NoteDbChangeState.isChangeUpToDate(state, refs, getChangeId());
+      } finally {
+        if (newRefCache != null) {
+          // RepoRefCache needs to be closed for preventing caching before
+          // any potential mutation happens with rebuildAndOpen()
+          newRefCache.close();
+        }
+      }
+      if (!changeUpToDate) {
         return rebuildAndOpen(repo, id);
       }
     }

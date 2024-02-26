@@ -41,6 +41,7 @@ public class ReplicatedIncomingAccountGroupIndexEventProcessor extends AbstractR
 
   @Override
   public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedIncomingAccountGroupIndexEventProcessor.class);
     unsubscribeEvent(this);
   }
 

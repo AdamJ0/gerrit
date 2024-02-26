@@ -1,5 +1,6 @@
 package com.google.gerrit.server.replication.feeds;
 
+import com.google.common.base.Strings;
 import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.replication.customevents.CacheKeyWrapper;
 import com.google.gerrit.server.replication.customevents.CacheObjectCallWrapper;
@@ -11,9 +12,8 @@ import com.google.inject.Singleton;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -74,8 +74,6 @@ import java.util.List;
 @Singleton //Not guice bound but makes it clear that it's a singleton
 public class ReplicatedOutgoingCacheEventsFeed extends ReplicatedOutgoingEventsFeedCommon {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
-
-  private static List<String> cacheEvictList = null;
   public static final String evictAllWildCard = "*";
 
   /**
@@ -93,59 +91,86 @@ public class ReplicatedOutgoingCacheEventsFeed extends ReplicatedOutgoingEventsF
     SingletonEnforcement.registerClass(ReplicatedOutgoingCacheEventsFeed.class);
   }
 
-  public static List<String> getAllUsersCacheEvictList() {
-    if (cacheEvictList != null) {
-      return cacheEvictList;
-    }
-    cacheEvictList = new ArrayList<>(Arrays.asList("sshkeys", "accounts", "accounts_byname", "accounts_byemail",
-        "groups", "groups_byinclude", "groups_byname", "groups_byuuid", "groups_external", "groups_members",
-        "ldap_group_existence", "ldap_groups", "ldap_groups_byinclude", "ldap_usernames"));
-    return cacheEvictList;
+  @Override
+  public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedOutgoingCacheEventsFeed.class);
   }
 
+  /**
+   * replicateEvictionFromCache is used to evict specific cache entries from remote servers.   The servers that are communicated
+   * with are specified by the project used.
+   * Caches which should be on specific projects, should call the overriden method giving the relative project name.
+   * @param cacheName
+   * @param key
+   * @param projectUsedForReplication This is the name of the project being used for replication,
+   *                                  i.e. ALL_USERS, ALL_PROJECTS or any replicated project name.
+   */
+  public void replicateEvictionFromCache(final String cacheName, final Object key, final String projectUsedForReplication ) {
 
-  public void replicateEvictionFromCache(String cacheName, Object key) {
     CacheKeyWrapper cacheKeyWrapper = new CacheKeyWrapper(cacheName, key, replicatedEventsCoordinator.getThisNodeIdentity());
     EventWrapper eventWrapper;
-
-    String allUsers = replicatedEventsCoordinator.getReplicatedConfiguration().getAllUsersName();
-
-    if (key.toString().equals(evictAllWildCard)){
-      logger.atInfo().log("CACHE key is [ %s ] so evicting all from cache: [ %s ]", evictAllWildCard, cacheName);
-    }
+    String projectName;
 
     try {
-      logger.atFine().log("CACHE About to call replicated eviction from cache for : CacheName: [ %s ] , Key: [ %s ]", cacheName, key);
+      // Set to the supplied project name, if none is supplied this is incorrect!
+      // We now force project decision back to the caller - as there are too many embedded types to try to recognise,
+      // the code was getting messy.
+      projectName = projectUsedForReplication;
 
-      //Set eventWrapper to the All-Projects EventWrapper initially
-      eventWrapper = GerritEventFactory.createReplicatedAllProjectsCacheEvent(cacheKeyWrapper);
-
-      // eventWrapper will be set to the All-Users cache event instead if its cache name exists in the All-Users
-      // cache eviction list.
-      if (getAllUsersCacheEvictList().contains(cacheName)) {
-        //Block to force cache update to the All-Users repo so it is triggered in sequence after event that caused the eviction.
-        logger.atFine().log("CACHE User replicated cache eviction All-Users Project CacheName: [ %s ], Key: [ %s ]", cacheName, key);
-        eventWrapper = GerritEventFactory.createReplicatedCacheEvent(allUsers, cacheKeyWrapper);
+      // projectUsedForReplication will be set to the All-Users project for certain cache event types, ALL_PROJECTS for other
+      // types, but JIC there is some event which is sent via projectDSM but also accepts sending NULL for project, we have
+      // a fallback to send via ALL_PROJECTS.
+      // N.B. This should never be triggered, so I have set to log this case for investigation rather than just ignore the event.
+      if (Strings.isNullOrEmpty(projectName)) {
+        // no project was supplied, this should NEVER happen now
+        // Log as warning every hour, the general debug logging after this block will output each event so we dont need to debug log here again.
+        logger.atWarning().atMostEvery(1, TimeUnit.HOURS).log("WARNING: No project name has been supplied, this should no longer happen - defaulting to ALL_PROJECTS for now.  CacheName: %s, CacheKey: %s",
+            cacheName, key);
+        projectName = replicatedEventsCoordinator.getReplicatedConfiguration().getAllProjectsName();
       }
+
+
+      if (key.toString().equals(evictAllWildCard)){
+        logger.atFine().log("CACHE replicated cache evictALL Project: [ %s ], CacheName: [ %s ], Key: [ %s ]", projectName, cacheName, key);
+      }
+      else {
+        logger.atFine().log("CACHE replicated cache eviction Project: [ %s ], CacheName: [ %s ], Key: [ %s ]", projectName, cacheName, key);
+      }
+      eventWrapper = GerritEventFactory.createReplicatedCacheEvent(projectName, cacheKeyWrapper);
 
       replicatedEventsCoordinator.queueEventForReplication(eventWrapper);
       ReplicatorMetrics.addEvictionsSent(cacheName);
     } catch (IOException e) {
-      logger.atSevere().withCause(e).log("Unable to create EventWrapper instance from replicated cache event : %s", e.getMessage());
+      logger.atSevere().withCause(e).log("Unable to create EventWrapper instance from replicated cache event : %s, using cacheName: %s and key: %s",
+          e.getMessage(), cacheName, key.toString());
     }
   }
 
-  public void replicateMethodCallFromCache(final String cacheName, final String methodName,
-                                           final Object projectName, final List<Object> otherMethodArgs) {
+  /**
+   * Replication of a specific call to be replicated on a cache to a specific remote set of sites specified by the
+   * project name.
+   *
+   * @param cacheName
+   * @param methodName
+   * @param otherMethodArgs
+   * @param projectToUseForReplication
+   */
+    public void replicateMethodCallFromCache(final String cacheName,
+                                             final String methodName,
+                                             final List<?> otherMethodArgs,
+                                             final String projectToUseForReplication) {
 
     CacheObjectCallWrapper cacheMethodCall = new CacheObjectCallWrapper(cacheName, methodName,
-            projectName, otherMethodArgs, replicatedEventsCoordinator.getThisNodeIdentity());
+        otherMethodArgs, replicatedEventsCoordinator.getThisNodeIdentity());
 
-    logger.atInfo().log("CACHE About to call replicated cache method: %s, %s, [ %s, %s ]",
-            cacheName, methodName, projectName, otherMethodArgs);
+    logger.atInfo().log("CACHE About to call replicated cache method: %s, %s, [ %s ] against project DSM: %s",
+            cacheName, methodName, otherMethodArgs, projectToUseForReplication);
+
+    // Please note the supplied projectname is used by some event to actually cause replication to that DSM, but for
+    // cache events this always goes to the ALL_PROJECTS dsm, as it covers project creation / deletion etc on project list.
     try {
       replicatedEventsCoordinator.queueEventForReplication(
-          GerritEventFactory.createReplicatedAllProjectsCacheEvent(cacheMethodCall));
+          GerritEventFactory.createReplicatedCacheEvent(projectToUseForReplication, cacheMethodCall));
     } catch (IOException e) {
       logger.atSevere().withCause(e).log("Unable to create EventWrapper instance from replicated cache event");
     }

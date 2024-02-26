@@ -25,18 +25,9 @@ public class ReplicatedOutgoingIndexEventsFeed extends ReplicatedOutgoingEventsF
     SingletonEnforcement.registerClass(ReplicatedOutgoingIndexEventsFeed.class);
   }
 
-  /**
-   * Main method used by the gerrit ChangeIndexer to communicate that a new index event has happened
-   * and must be replicated across the nodes.
-   * <p>
-   * This will enqueue the event for async replication
-   *
-   * @param indexNumber
-   * @param projectName
-   * @param lastUpdatedOn
-   */
-  public void queueReplicationIndexEvent(int indexNumber, String projectName, Timestamp lastUpdatedOn, boolean safeToIgnoreMissingChange) throws IOException {
-    queueReplicationIndexEvent(indexNumber, projectName, lastUpdatedOn, false, safeToIgnoreMissingChange);
+  @Override
+  public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedOutgoingIndexEventsFeed.class);
   }
 
   /**
@@ -50,6 +41,21 @@ public class ReplicatedOutgoingIndexEventsFeed extends ReplicatedOutgoingEventsF
    */
   public void queueReplicationIndexDeletionEvent(int indexNumber, String projectName) throws IOException {
     queueReplicationIndexEvent(indexNumber, projectName, new Timestamp(System.currentTimeMillis()), true, false);
+  }
+
+
+  /**
+   * Main method used by the gerrit ChangeIndexer to communicate that a new index event has happened
+   * and must be replicated across the nodes.
+   * <p>
+   * This will enqueue the event for async replication
+   *
+   * @param indexNumber
+   * @param projectName
+   * @param lastUpdatedOn
+   */
+  public void queueReplicationIndexEvent(int indexNumber, String projectName, Timestamp lastUpdatedOn, boolean safeToIgnoreMissingChange) throws IOException {
+    queueReplicationIndexEvent(indexNumber, projectName, lastUpdatedOn, false, safeToIgnoreMissingChange);
   }
 
   /**

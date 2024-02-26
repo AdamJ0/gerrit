@@ -1,5 +1,8 @@
 #!/bin/bash --noprofile
 
+# This script now is only used to convey what to archive to the jenkins build job instead of using
+# complex locations in the job - it can just call this script then use ASSETS_FOUND env export..
+
 build_tool_dir="$(dirname "$0")"
 source "$build_tool_dir/build-tools-base.sh"
 
@@ -75,12 +78,16 @@ function check_for_asset(){
   fi
 }
 
+# Note from the 1.11.0.2 gerrit release, we now using deployment from the maven wrapper which
+#installs all assets into .m2 for use by other projects like the docker images etc, as well as
+# deploy with the correct different namespaces for groupId/artifactId - see gerrit-packaging-deployment
+# any new asset that you wanted listed here, should always be also in the mvn module now.
 check_for_asset "$ASSETS_PATH/plugins/delete-project/delete-project.jar" $TRUE
 # TODO: for moment during 2.16 dev lfs is optional, put back to required.
 check_for_asset "$ASSETS_PATH/plugins/lfs/lfs.jar" $TRUE
 check_for_asset "$ASSETS_PATH/plugins/its-jira/its-jira.jar" $TRUE
 check_for_asset "$ASSETS_PATH/release.war" $TRUE
-check_for_asset "$ASSETS_PATH/gerrit-console-api/console-api.jar" $TRUE
+check_for_asset "$ASSETS_PATH/gerrit-console-api/console-api_deploy.jar" $TRUE
 check_for_asset "$GERRIT_REPO_ROOT/target/gerritms-installer.sh" $TRUE
 
 # Export all the items / assets now.

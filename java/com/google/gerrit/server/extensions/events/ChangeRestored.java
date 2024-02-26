@@ -20,7 +20,6 @@ import com.google.gerrit.extensions.common.AccountInfo;
 import com.google.gerrit.extensions.common.ChangeInfo;
 import com.google.gerrit.extensions.common.RevisionInfo;
 import com.google.gerrit.extensions.events.ChangeRestoredListener;
-import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.reviewdb.client.PatchSet;
 import com.google.gerrit.server.GpgException;
@@ -29,13 +28,11 @@ import com.google.gerrit.server.patch.PatchListNotAvailableException;
 import com.google.gerrit.server.patch.PatchListObjectTooLargeException;
 import com.google.gerrit.server.permissions.PermissionBackendException;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
-import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import java.io.IOException;
 import java.sql.Timestamp;
-import java.util.StringJoiner;
 
 @Singleton
 public class ChangeRestored {
@@ -44,13 +41,10 @@ public class ChangeRestored {
   private final PluginSetContext<ChangeRestoredListener> listeners;
   private final EventUtil util;
 
-  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
-
   @Inject
-  ChangeRestored(PluginSetContext<ChangeRestoredListener> listeners, EventUtil util, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
+  ChangeRestored(PluginSetContext<ChangeRestoredListener> listeners, EventUtil util) {
     this.listeners = listeners;
     this.util = util;
-    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   public void fire(
@@ -65,8 +59,7 @@ public class ChangeRestored {
               util.revisionInfo(change.getProject(), ps),
               util.accountInfo(restorer),
               reason,
-              when,
-              replicatedEventsCoordinator.getThisNodeIdentity());
+              when);
       listeners.runEach(l -> l.onChangeRestored(event));
     } catch (PatchListObjectTooLargeException e) {
       logger.atWarning().log("Couldn't fire event: %s", e.getMessage());
@@ -79,18 +72,6 @@ public class ChangeRestored {
     }
   }
 
-  /**
-   * fire stream event off for its respective listeners to pick up.
-   * @param streamEvent ChangeRestoredListener.Event
-   */
-  public void fire(ChangeRestoredListener.Event streamEvent) {
-    if (listeners.isEmpty()) {
-      return;
-    }
-    listeners.runEach(l -> l.onChangeRestored(streamEvent));
-  }
-
-  @isReplicatedStreamEvent
   private static class Event extends AbstractRevisionEvent implements ChangeRestoredListener.Event {
 
     private String reason;
@@ -100,52 +81,14 @@ public class ChangeRestored {
         RevisionInfo revision,
         AccountInfo restorer,
         String reason,
-        Timestamp when,
-        final String nodeIdentity) {
-      super(change, revision, restorer, when, NotifyHandling.ALL, nodeIdentity);
+        Timestamp when) {
+      super(change, revision, restorer, when, NotifyHandling.ALL);
       this.reason = reason;
     }
 
     @Override
     public String getReason() {
       return reason;
-    }
-
-    @Override
-    public String nodeIdentity() {
-      return super.getNodeIdentity();
-    }
-
-    @Override
-    public String className() {
-      return this.getClass().getName();
-    }
-
-    @Override
-    public String projectName() {
-      return getChange().project;
-    }
-
-    @Override
-    public void setStreamEventReplicated(boolean replicated) {
-      hasBeenReplicated = replicated;
-    }
-
-    @Override
-    public boolean replicationSuccessful() {
-      return hasBeenReplicated;
-    }
-
-
-    @Override
-    public String toString() {
-      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
-              .add("reason='" + reason + "'")
-              .add("hasBeenReplicated=" + super.hasBeenReplicated)
-              .add("eventTimestamp=" + getEventTimestamp())
-              .add("eventNanoTime=" + getEventNanoTime())
-              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
-              .toString();
     }
   }
 }

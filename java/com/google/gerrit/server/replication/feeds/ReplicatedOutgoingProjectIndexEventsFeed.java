@@ -29,6 +29,11 @@ public class ReplicatedOutgoingProjectIndexEventsFeed extends ReplicatedOutgoing
     SingletonEnforcement.registerClass(ReplicatedOutgoingProjectIndexEventsFeed.class);
   }
 
+  @Override
+  public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedOutgoingProjectIndexEventsFeed.class);
+  }
+
   /**
    * Queues a ProjectsIndexEvent
    * The ProjectsIndexEvent can be constructed with a boolean flag to state
@@ -40,7 +45,9 @@ public class ReplicatedOutgoingProjectIndexEventsFeed extends ReplicatedOutgoing
     ProjectIndexEvent projectIndexEvent = new ProjectIndexEvent(nameKey,
         replicatedEventsCoordinator.getReplicatedConfiguration().getThisNodeIdentity(), deleteFromIndex);
 
+    logger.atFine().log("Queuing new ProjectIndexEvent, deleteFromIndex : %s ", deleteFromIndex);
+
     replicatedEventsCoordinator.queueEventForReplication(
-        GerritEventFactory.createReplicatedProjectsIndexEvent(ReplicationConstants.ALL_PROJECTS, projectIndexEvent));
+        GerritEventFactory.createReplicatedProjectsIndexEvent(replicatedEventsCoordinator.getReplicatedConfiguration().getAllProjectsName(), projectIndexEvent));
   }
 }

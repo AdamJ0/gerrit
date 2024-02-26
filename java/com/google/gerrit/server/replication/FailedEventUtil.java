@@ -100,7 +100,7 @@ public final class FailedEventUtil {
       if (persistedEventInformation.atomicRenameTmpFilename()) {
         // Rename was successful
         logger.atInfo().log("RE Removed completed events from existing event file [ %s ] for project [ %s ].",
-            persistedEventInformation.getFinalEventFileName(),
+            persistedEventInformation.getFinalEventFile().getName(),
             persistedEventInformation.getProjectName());
       }
       return;

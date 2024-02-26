@@ -73,17 +73,18 @@ class DefaultMemoryCacheFactory implements MemoryCacheFactory {
   @Override
   public <K, V> LoadingCache<K, V> build(
       CacheDef<K, V> def, CacheLoader<K, V> loader, CacheBackend backend) {
-    return backend.isLegacyBackend()
-        ? createLegacy(def).build(loader)
-        : CaffeinatedGuava.build(create(def), loader);
+    return cacheMaximumWeight(def) == 0
+        ? new PassthroughLoadingCache<>(loader)
+        : (backend.isLegacyBackend()
+            ? createLegacy(def).build(loader)
+            : CaffeinatedGuava.build(create(def), loader));
   }
 
   @SuppressWarnings("unchecked")
   private <K, V> CacheBuilder<K, V> createLegacy(CacheDef<K, V> def) {
     CacheBuilder<K, V> builder = newLegacyCacheBuilder();
     builder.recordStats();
-    builder.maximumWeight(
-        cfg.getLong("cache", def.configKey(), "memoryLimit", def.maximumWeight()));
+    builder.maximumWeight(cacheMaximumWeight(def));
 
     builder = builder.removalListener(forwardingRemovalListenerFactory.create(def.name()));
 
@@ -124,8 +125,7 @@ class DefaultMemoryCacheFactory implements MemoryCacheFactory {
   private <K, V> Caffeine<K, V> create(CacheDef<K, V> def) {
     Caffeine<K, V> builder = newCacheBuilder();
     builder.recordStats();
-    builder.maximumWeight(
-        cfg.getLong("cache", def.configKey(), "memoryLimit", def.maximumWeight()));
+    builder.maximumWeight(cacheMaximumWeight(def));
     builder = builder.removalListener(newRemovalListener(def.name()));
     builder.weigher(newWeigher(def.weigher()));
 
@@ -155,6 +155,10 @@ class DefaultMemoryCacheFactory implements MemoryCacheFactory {
     }
 
     return builder;
+  }
+
+  private <K, V> long cacheMaximumWeight(CacheDef<K, V> def) {
+    return cfg.getLong("cache", def.configKey(), "memoryLimit", def.maximumWeight());
   }
 
   private static long toSeconds(@Nullable Duration duration) {

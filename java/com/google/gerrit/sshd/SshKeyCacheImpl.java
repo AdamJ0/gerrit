@@ -111,11 +111,12 @@ public class SshKeyCacheImpl implements SshKeyCache {
    * Asks the replicated coordinator for the instance of the ReplicatedOutgoingCacheEventsFeed and calls
    * replicateEvictionFromCache on it.
    * @param name : Name of the cache to evict from.
-   * @param value : Value to evict from the cache.
+   * @param username : username (value) to evict from the cache.
    */
-  private void replicateEvictionFromCache(String name, Object value) {
+  private void replicateEvictionFromCache(final String name, final String username) {
     if(replicatedEventsCoordinator.isReplicationEnabled()) {
-      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value);
+      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, username,
+          replicatedEventsCoordinator.getReplicatedConfiguration().getAllUsersName());
     }
   }
 

@@ -14,6 +14,7 @@ import com.google.gerrit.server.replication.exceptions.ReplicatedEventsDBNotUpTo
 import com.google.gerrit.server.replication.exceptions.ReplicatedEventsImmediateFailWithoutBackoffException;
 import com.google.gerrit.server.replication.exceptions.ReplicatedEventsMissingChangeInformationException;
 import com.google.gerrit.server.replication.exceptions.ReplicatedEventsUnknownTypeException;
+import com.google.gerrit.server.replication.processors.ReplicatedStoppable;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import com.google.inject.Singleton;
@@ -31,6 +32,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -44,7 +46,7 @@ import java.util.zip.GZIPInputStream;
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.INCOMING_EVENTS_FILE_PREFIX;
 
 @Singleton //Not guice bound but makes it clear that it's a singleton
-public class ReplicatedIncomingEventWorker implements Runnable {
+public class ReplicatedIncomingEventWorker implements Runnable, ReplicatedStoppable {
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
 
   private static final ReplicatedEventsFileFilter incomingEventsToReplicateFileFilter =
@@ -70,6 +72,11 @@ public class ReplicatedIncomingEventWorker implements Runnable {
     this.replicatedConfiguration = replicatedEventsCoordinator.getReplicatedConfiguration();
     this.gson = replicatedEventsCoordinator.getGson();
     SingletonEnforcement.registerClass(ReplicatedIncomingEventWorker.class);
+  }
+
+  @Override
+  public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedIncomingEventWorker.class);
   }
 
   /**
@@ -150,7 +157,17 @@ public class ReplicatedIncomingEventWorker implements Runnable {
 
         // Before listing the directory - get mtime on directory...
         // Take again after the listing, if its changed - we could have time for either before or after or between!
-        final long eventDirModified = replicatedConfiguration.getIncomingReplEventsDirectory().lastModified();
+        // Note using the Files.getLastModifiedTime(file) instead of file.lastModifiedTime() to avoid a file system resolution
+        // issue on certain JDK versions. See GER-1925, and bug: https://bugs.java.com/bugdatabase/view_bug?bug_id=8177809
+        final long eventDirModified = Files.getLastModifiedTime(replicatedConfiguration.getIncomingReplEventsDirectory().toPath()).toMillis();
+
+        if ( eventDirModified == 0 ){
+          // On some operating systems the value of the modified time is being returned even though there is no directory.
+          // Ensure that we return, and keep checking every x period and dont just think we have processed all event files!
+          logger.atInfo().atMostEvery(replicatedConfiguration.getLoggingMaxPeriodValueMs(), TimeUnit.MILLISECONDS).log("No last modified time given for the directory - will continue fast processing loops.");
+          replicatedScheduling.setAllEventsFilesHaveBeenProcessedSuccessfully(false);
+          return;
+        }
 
         // before we do the directory listing - check can we skip it successfully.
         if (replicatedScheduling.isAllEventsFilesHaveBeenProcessedSuccessfully() &&
@@ -159,7 +176,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
           // directory time has changed.  Don't flood the logs with this message every 500ms though!
           logger.atFine().atMostEvery(replicatedConfiguration.getLoggingMaxPeriodValueMs(), TimeUnit.MILLISECONDS)
               .log("RE Not scanning events directory as last modified " +
-                  "time is still the same and all events were previously processed.");
+                  "time is still the same and all events were previously processed at lastModifiedTime: %s", eventDirModified);
           return;
         }
 
@@ -168,36 +185,69 @@ public class ReplicatedIncomingEventWorker implements Runnable {
         listFiles = replicatedConfiguration.getIncomingReplEventsDirectory()
             .listFiles(incomingEventsToReplicateFileFilter);
 
-        final long eventDirModifiedAfterListing = replicatedConfiguration.getIncomingReplEventsDirectory().lastModified();
+        // At this stage - indicate we have not processed all files until we are certain we have!
+        replicatedScheduling.setAllEventsFilesHaveBeenProcessedSuccessfully(false);
 
         if (listFiles == null) {
-          logger.atSevere().log("RE There were no matching files found in the [ %s ] directory",
+          // weird - as null shouldn't happen - something wrong with our list files filter?
+          logger.atSevere().log("RE Null files found from our file filter in the [ %s ] directory",
               replicatedConfiguration.getIncomingReplEventsDirectory());
-
-          // ensure we set that not all files have been processed.
-          replicatedScheduling.setAllEventsFilesHaveBeenProcessedSuccessfully(false);
           return;
         }
 
-        // Whether there are some or no event files we can record the time we listed them out now
-        // for use in decisions next time we come in here.
-        replicatedScheduling.setEventDirLastModifiedTime(eventDirModified);
+        final long eventDirModifiedAfterListing =
+            Files.getLastModifiedTime(replicatedConfiguration.getIncomingReplEventsDirectory().toPath()).toMillis();
 
         if (listFiles.length == 0) {
-          // No files found - lets get out of here.
-          // indicate all files have been processed successfully finally, there can't be any WIP,
-          // as there are no files in the directory.  Indicate all processed now and we will stop listing until dir mtime
-          // actually gets updated.
-          replicatedScheduling.setAllEventsFilesHaveBeenProcessedSuccessfully(true);
           dirtyCopyOfWIP = replicatedScheduling.getCopyEventsFilesInProgress();
 
           if (!dirtyCopyOfWIP.isEmpty()) {
             // this condition would indicate someone deleting the event file before actually taking the lock and
             // updating the WIP list.  This should all be done in a locked state to prevent race conditions such as this.!
+            // leave all files processed indicating false - to force it to check again.
             logger.atWarning().log(
                 "Strange condition - no event files in event directory which indicates all events processed, but WIP shows size %s.", dirtyCopyOfWIP.size());
+            //  can't trust that we have processed all files- so leave =FALSE to force us to check again next time around.
+            return;
           }
 
+          if ( eventDirModified != eventDirModifiedAfterListing ) {
+            // leave all files processed indicating false - I know there are no files, but the mtimes have changed between
+            // original request, the after the directory listing
+            logger.atFine().log("No files were picked up to be processed but the original mtime: %s " +
+                    "has been updated to mtime: %s between checks, can't trust we have processed all files.",
+                eventDirModified, eventDirModifiedAfterListing);
+            return;
+          }
+
+          // So normally we should trust this, but when we only have MS accuracy its possible that we could of got the
+          // mtime of incoming, the incoming directory listing, then the mtime again all in the same ms window, but missed a file being created inside
+          // that resolution period, so to make triple sure.
+          // 1)  lets sleep for the file system stat accuracy period (1ms default now worked out per file system type on the directory as some jdks
+          // had 1second accuracy)to make sure we to avoid any overlap.
+          // https://bugs.java.com/bugdatabase/view_bug?bug_id=8177809
+          // 2) check the mtime is exactly the same as the initial mtime recorded.
+          //  ( note this happens before step 3, to avoid a more expensive check happening when doesn't need to )
+          // 3) check again to make sure file listing is still empty
+          if ( replicatedConfiguration.getFileSystemResolutionPeriodMs() != 0 ) {
+            Thread.sleep(replicatedConfiguration.getFileSystemResolutionPeriodMs());
+          }
+
+          // Check to see if we finally can trust this status that no files exist and the mtime on the directory defo hasn't
+          // changed after the sleep period.
+          if ( Files.getLastModifiedTime(replicatedConfiguration.getIncomingReplEventsDirectory().toPath()).toMillis() == eventDirModified &&
+              replicatedConfiguration.getIncomingReplEventsDirectory().listFiles(incomingEventsToReplicateFileFilter).length == 0 ) {
+            logger.atFine().log("No files to be processed at this mtime %s, so we can wait until folder is updated again.", eventDirModified);
+            // indicate all files have been processed successfully finally, there isn't any WIP, and all
+            // of the listed files have been processed as there are no files in the directory.
+            replicatedScheduling.setAllEventsFilesHaveBeenProcessedSuccessfully(true);
+            replicatedScheduling.setEventDirLastModifiedTime(eventDirModified);
+            return;
+          }
+
+          // we dont trust it - log this weird circumstance - and we will go around again.
+          logger.atFine().log("No files where processed but we have noted a ms Filesystem accuracy overlap, " +
+              "not indicating all events have been processed as we can't trust it.");
           return;
         }
 
@@ -224,9 +274,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
 
         // If the wip count matches the listed directory count - then they are all already in progress.
         if (dirtyCopyOfWIP.size() == listFiles.length) {
-          logger.atInfo().atMostEvery(
-              replicatedConfiguration.getLoggingMaxPeriodValueMs(), TimeUnit.MILLISECONDS).log(
-              "All event files in directory are already in progress, exiting.");
+          logger.atFinest().log("All event files in directory are already in progress, exiting.");
           return;
         }
       } // release the lock - we have got our copy of all info required.
@@ -299,6 +347,9 @@ public class ReplicatedIncomingEventWorker implements Runnable {
           "Have processed all event data and skipped over none: [ %s ]", !replicatedEventsCoordinator
               .getReplicatedScheduling().hasSkippedAnyEvents());
 
+    }
+    catch (InterruptedException e) {
+      logger.atWarning().withCause(e).log("Interrupted excepion encountered, probably as part of normal shutdown.");
     } catch (Exception e) {
       logger.atSevere().withCause(e).log("RE error while reading events from incoming queue");
     }
@@ -373,7 +424,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
 
         switch(originalEvent.getEventOrigin()){
           case INDEX_EVENT:
-          case REPLICATED_STREAM_EVENT:
+          case GERRIT_EVENT:
           case CACHE_EVENT:
           case ACCOUNT_USER_INDEX_EVENT:
           case ACCOUNT_GROUP_INDEX_EVENT :
@@ -516,7 +567,7 @@ public class ReplicatedIncomingEventWorker implements Runnable {
    * @return
    * @throws IOException
    */
-  private List<EventWrapper> checkAndSortEvents(byte[] eventsBytes)
+  public List<EventWrapper> checkAndSortEvents(byte[] eventsBytes)
       throws InvalidEventJsonException {
 
     List<EventWrapper> eventDataList = new ArrayList<>();

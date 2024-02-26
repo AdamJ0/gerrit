@@ -1,0 +1,97 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>org.wandisco</groupId>
+  <artifactId>gerrit-installer-build</artifactId>
+  <version>2.16.28-RP-1.11.0.2</version>
+
+  <parent>
+    <groupId>com.wandisco</groupId>
+    <artifactId>gerrit-installer-aggregator</artifactId>
+    <version>2.16.28-RP-1.11.0.2</version>
+  </parent>
+
+  <packaging>pom</packaging>
+  <name>Gerrit-Installer-Build</name>
+  <description>WANDisco Pom that runs the Makefile targets responsible
+    for deploying assets and listing assets via the exec-maven-plugin. This pom is for internal company use.</description>
+
+
+  <properties>
+    <!-- would be nice to default this to a target(s) that run a default build set for dev, although official builds may need
+    pre-req setup-env first, so lets call the "all" target of the makefile and let it decide what needs to be conditionally run.
+     For convenience, you can run mvn -DmakeTarget=fast-assembly, and it will just work, or -DmakeTarget=deploy, and it will deploy what is needed. -->
+    <makeTarget>all</makeTarget>
+    <!-- Setting default for properties so mvn can be run without passing these all the time.-->
+    <release>false</release>
+    <officialBuild>false</officialBuild>
+    <RUN_INTEGRATION_TESTS>true</RUN_INTEGRATION_TESTS>
+    <NEW_PROJECT_VERSION>false</NEW_PROJECT_VERSION>
+  </properties>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.0</version>
+        <executions>
+          <!-- run mvn validate to trigger this execution-->
+          <execution>
+            <id>validate-project</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>make</executable>
+              <workingDirectory>${project.basedir}/..</workingDirectory>
+              <arguments>
+                <argument>validate</argument>
+              </arguments>
+              <environmentVariables>
+                <NEW_PROJECT_VERSION>${NEW_PROJECT_VERSION}</NEW_PROJECT_VERSION>
+                <officialBuild>${officialBuild}</officialBuild>
+              </environmentVariables>
+            </configuration>
+          </execution>
+          <!-- This execution is capable of running ANY Makefile target. Default makeTarget is all -->
+          <execution>
+            <id>build-all-conditionally</id>
+            <phase>package</phase>
+            <goals>
+              <goal>exec</goal>
+            </goals>
+            <configuration>
+              <executable>make</executable>
+              <workingDirectory>${project.basedir}/..</workingDirectory>
+              <arguments>
+                <argument>${makeTarget}</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
+        <configuration>
+          <environmentVariables>
+            <RUN_INTEGRATION_TESTS>${RUN_INTEGRATION_TESTS}</RUN_INTEGRATION_TESTS>
+            <officialBuild>${officialBuild}</officialBuild>
+            <release>${release}</release>
+          </environmentVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+
+    <profile>
+      <!-- FAST assembly already exists in maven-common so lets add onto its definition here.
+      add on the run_integration_test false property to ignore test on fast assembly -->
+      <id>fast-assembly</id>
+      <properties>
+        <RUN_INTEGRATION_TESTS>false</RUN_INTEGRATION_TESTS>
+      </properties>
+    </profile>
+  </profiles>
+</project>

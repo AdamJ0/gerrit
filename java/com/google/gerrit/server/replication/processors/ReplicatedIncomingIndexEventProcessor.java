@@ -58,6 +58,7 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
 
   @Override
   public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedIncomingIndexEventProcessor.class);
     unsubscribeEvent(this);
   }
 
@@ -436,7 +437,7 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
    * @throws IOException
    */
   public void deleteChange(int indexNumber) throws IOException {
-    replicatedEventsCoordinator.getChangeIndexer().delete(new Change.Id(indexNumber));
+    replicatedEventsCoordinator.getChangeIndexer().deleteNoRepl(new Change.Id(indexNumber));
     logger.atInfo().log("Deleted change: %s", indexNumber);
 
   }
@@ -449,7 +450,7 @@ public class ReplicatedIncomingIndexEventProcessor extends AbstractReplicatedEve
    * @throws IOException
    */
   public void deleteChange(Change.Id id) throws IOException {
-    replicatedEventsCoordinator.getChangeIndexer().delete(id);
+    replicatedEventsCoordinator.getChangeIndexer().deleteNoRepl(id);
     logger.atInfo().log("Deleted change: %s" , id.get());
   }
 

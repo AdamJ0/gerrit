@@ -47,7 +47,6 @@ import com.google.gerrit.extensions.client.InheritableBoolean;
 import com.google.gerrit.extensions.client.SubmitType;
 import com.google.gerrit.extensions.common.ProjectInfo;
 import com.google.gerrit.extensions.events.NewProjectCreatedListener;
-import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.extensions.restapi.*;
 import com.google.gerrit.reviewdb.client.AccountGroup;
 import com.google.gerrit.reviewdb.client.BooleanProjectConfig;
@@ -63,7 +62,6 @@ import com.google.gerrit.server.config.ProjectOwnerGroupsProvider;
 import com.google.gerrit.server.config.RepositoryConfig;
 import com.google.gerrit.server.extensions.events.AbstractNoNotifyEvent;
 import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
-import com.google.gerrit.server.extensions.events.isReplicatedStreamEvent;
 import com.google.gerrit.server.git.GitRepositoryManager;
 import com.google.gerrit.server.git.RepositoryCaseMismatchException;
 import com.google.gerrit.server.git.meta.MetaDataUpdate;
@@ -78,7 +76,6 @@ import com.google.gerrit.server.project.ProjectJson;
 import com.google.gerrit.server.project.ProjectNameLockManager;
 import com.google.gerrit.server.project.ProjectResource;
 import com.google.gerrit.server.project.ProjectState;
-import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gerrit.server.validators.ProjectCreationValidationListener;
 import com.google.gerrit.server.validators.ValidationException;
 import com.google.inject.Inject;
@@ -88,7 +85,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.StringJoiner;
 import java.util.concurrent.locks.Lock;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
@@ -127,8 +123,6 @@ public class CreateProject
   private final AllProjectsName allProjects;
   private final AllUsersName allUsers;
   private final PluginItemContext<ProjectNameLockManager> lockManager;
-  private final Provider<ReplicatedEventsCoordinator> replicatedEventsCoordinator;
-
 
   @Inject
   CreateProject(
@@ -149,8 +143,7 @@ public class CreateProject
       Provider<PutConfig> putConfig,
       AllProjectsName allProjects,
       AllUsersName allUsers,
-      PluginItemContext<ProjectNameLockManager> lockManager,
-      Provider<ReplicatedEventsCoordinator> replicatedEventsCoordinator) {
+      PluginItemContext<ProjectNameLockManager> lockManager) {
     this.projectsCollection = projectsCollection;
     this.groupResolver = groupResolver;
     this.projectCreationValidationListeners = projectCreationValidationListeners;
@@ -169,7 +162,6 @@ public class CreateProject
     this.allProjects = allProjects;
     this.allUsers = allUsers;
     this.lockManager = lockManager;
-    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   @Override
@@ -354,6 +346,8 @@ public class CreateProject
       config.commit(md);
       md.getRepository().setGitwebDescription(args.projectDescription);
     }
+    // Support additional args on the create project event - although the branch name is only supplied by the later
+    // extension event firing - we should support it here, as we dont know how we are being fired.
     projectCache.onCreateProject(args.getProject(), args.permissionsOnly ? RefNames.REFS_CONFIG : args.branch.get(0));
   }
 
@@ -428,28 +422,15 @@ public class CreateProject
       return;
     }
 
-    Event event = new Event(name, head, replicatedEventsCoordinator.get().getThisNodeIdentity());
+    Event event = new Event(name, head);
     createdListeners.runEach(l -> l.onNewProjectCreated(event));
   }
 
-  /**
-   * fire stream event off for its respective listeners to pick up.
-   * @param streamEvent NewProjectCreatedListener.Event
-   */
-  public void fire(NewProjectCreatedListener.Event streamEvent) {
-    if (createdListeners.isEmpty()) {
-      return;
-    }
-    createdListeners.runEach(l -> l.onNewProjectCreated(streamEvent));
-  }
-
-  @isReplicatedStreamEvent
-  private static class Event extends AbstractNoNotifyEvent implements NewProjectCreatedListener.Event {
+  static class Event extends AbstractNoNotifyEvent implements NewProjectCreatedListener.Event {
     private final Project.NameKey name;
     private final String head;
 
-    Event(Project.NameKey name, String head, final String nodeIdentity) {
-      super(nodeIdentity);
+    Event(Project.NameKey name, String head) {
       this.name = name;
       this.head = head;
     }
@@ -462,43 +443,6 @@ public class CreateProject
     @Override
     public String getHeadName() {
       return head;
-    }
-
-    @Override
-    public String nodeIdentity() {
-      return super.getNodeIdentity();
-    }
-
-    @Override
-    public String className() {
-      return this.getClass().getName();
-    }
-
-    @Override
-    public String projectName() {
-      return getProjectName();
-    }
-
-    @Override
-    public void setStreamEventReplicated(boolean replicated) {
-      hasBeenReplicated = replicated;
-    }
-
-    @Override
-    public boolean replicationSuccessful() {
-      return hasBeenReplicated;
-    }
-
-    @Override
-    public String toString() {
-      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
-              .add("name=" + name)
-              .add("head='" + head + "'")
-              .add("hasBeenReplicated=" + super.hasBeenReplicated)
-              .add("eventTimestamp=" + getEventTimestamp())
-              .add("eventNanoTime=" + getEventNanoTime())
-              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
-              .toString();
     }
   }
 }

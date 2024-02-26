@@ -1,7 +1,9 @@
 package com.google.gerrit.server.replication;
 
 import com.wandisco.gerrit.gitms.shared.util.StringUtils;
+import org.junit.After;
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -17,6 +19,11 @@ public class SingletonEnforcementTest {
   @Before
   public void before(){
     SingletonEnforcement.setDisableEnforcement(false);
+  }
+
+  @After
+  public void afterEachTest(){
+    SingletonEnforcement.clearAll();
   }
 
   @AfterClass
@@ -39,12 +46,20 @@ public class SingletonEnforcementTest {
 
   @Test
   public void testSingletonEnforcementUnregister(){
-    String uniqueName = StringUtils.createUniqueString("SomeTestclass");
+    String uniqueName1 = StringUtils.createUniqueString("SomeTestclass1");
+    String uniqueName2 = StringUtils.createUniqueString("SomeTestclass2");
+    String uniqueName3 = StringUtils.createUniqueString("SomeTestclass3");
+    String uniqueName4 = StringUtils.createUniqueString("SomeTestclass4");
 
+    SingletonEnforcement.registerClass(uniqueName1);
+    SingletonEnforcement.registerClass(uniqueName2);
+    SingletonEnforcement.registerClass(uniqueName3);
 
-    SingletonEnforcement.registerClass(uniqueName);
-    SingletonEnforcement.unregisterClass(uniqueName);
-    SingletonEnforcement.registerClass(uniqueName);
+    SingletonEnforcement.unregisterClass(uniqueName3);
+    Assert.assertEquals(2, SingletonEnforcement.getSingletonEnforcement().size());
+
+    SingletonEnforcement.registerClass(uniqueName4);
+    Assert.assertEquals(3, SingletonEnforcement.getSingletonEnforcement().size());
   }
 
   @Test
@@ -55,15 +70,18 @@ public class SingletonEnforcementTest {
     SingletonEnforcement.registerClass(uniqueName);
     SingletonEnforcement.setDisableEnforcement(true);
     SingletonEnforcement.registerClass(uniqueName);
+    Assert.assertEquals(1, SingletonEnforcement.getSingletonEnforcement().size());
   }
 
 
   @Test
   public void testSingletonEnforcementClear(){
-    String uniqueName = StringUtils.createUniqueString("SomeTestclass");
-
-    SingletonEnforcement.registerClass(uniqueName);
+    SingletonEnforcement.registerClass(StringUtils.createUniqueString("SomeTestclass1"));
     SingletonEnforcement.clearAll();
-    SingletonEnforcement.registerClass(uniqueName);
+    SingletonEnforcement.registerClass(StringUtils.createUniqueString("SomeTestclass2"));
+    SingletonEnforcement.registerClass(StringUtils.createUniqueString("SomeTestclass3"));
+    SingletonEnforcement.registerClass(StringUtils.createUniqueString("SomeTestclass4"));
+
+    Assert.assertEquals(3, SingletonEnforcement.getSingletonEnforcement().size());
   }
 }

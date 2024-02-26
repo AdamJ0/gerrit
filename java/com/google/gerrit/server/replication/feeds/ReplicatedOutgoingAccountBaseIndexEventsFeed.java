@@ -33,6 +33,11 @@ public class ReplicatedOutgoingAccountBaseIndexEventsFeed extends ReplicatedOutg
   }
 
 
+  @Override
+  public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedOutgoingAccountBaseIndexEventsFeed.class);
+  }
+
   /**
    * Queues either a AccountGroupIndexEvent or AccountUserIndexEvent event based on the identifier passed
    * to the method. The identifier is either an Account.Id or an AccountGroup.UUID.
@@ -57,6 +62,6 @@ public class ReplicatedOutgoingAccountBaseIndexEventsFeed extends ReplicatedOutg
     }
 
     replicatedEventsCoordinator.queueEventForReplication(GerritEventFactory.createReplicatedAccountIndexEvent(
-        "All-Users", accountIndexEventBase, originator));
+        replicatedEventsCoordinator.getReplicatedConfiguration().getAllUsersName(), accountIndexEventBase, originator));
   }
 }

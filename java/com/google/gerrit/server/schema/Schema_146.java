@@ -32,8 +32,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
-import java.text.ParseException;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,8 +42,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
-import org.eclipse.jgit.internal.storage.file.FileRepository;
-import org.eclipse.jgit.internal.storage.file.GC;
 import org.eclipse.jgit.internal.storage.file.PackInserter;
 import org.eclipse.jgit.lib.BatchRefUpdate;
 import org.eclipse.jgit.lib.CommitBuilder;
@@ -54,14 +50,11 @@ import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ObjectInserter;
 import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.PersonIdent;
-import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
-import org.eclipse.jgit.lib.TextProgressMonitor;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevSort;
 import org.eclipse.jgit.revwalk.RevWalk;
-import org.eclipse.jgit.storage.pack.PackConfig;
 import org.eclipse.jgit.transport.ReceiveCommand;
 
 /**
@@ -103,9 +96,6 @@ public class Schema_146 extends SchemaVersion {
   protected void migrateData(ReviewDb db, UpdateUI ui) throws OrmException, SQLException {
     ui.message("Migrating accounts");
     Set<Entry<Account.Id, Timestamp>> accounts = scanAccounts(db, ui).entrySet();
-    ui.message("Run full gc as preparation for the migration");
-    gc(ui);
-    ui.message(String.format("... (%.3f s) full gc completed", elapsed()));
     Set<List<Entry<Account.Id, Timestamp>>> batches =
         Sets.newHashSet(Iterables.partition(accounts, 500));
     ExecutorService pool = createExecutor(ui);
@@ -162,9 +152,7 @@ public class Schema_146 extends SchemaVersion {
         inserter.flush();
         bru.execute(rw, NullProgressMonitor.INSTANCE);
         if (inserter instanceof PackInserter && packs.incrementAndGet() % 50 == 0) {
-          ui.message("Run full gc");
-          gc(ui);
-          ui.message(String.format("... (%.3f s) full gc completed", elapsed()));
+          runGcInBackground(repoManager, allUsersName, ui);
         }
       }
       showProgress(ui, migratedAccounts.addAndGet(batch.size()));
@@ -183,47 +171,6 @@ public class Schema_146 extends SchemaVersion {
           String.format(
               "... (%.3f s) migrated %d%% (%d/%d) accounts",
               elapsed(), Math.round(100.0 * count / size), count, size));
-    }
-  }
-
-  private void gc(UpdateUI ui) {
-    try (Repository repo = repoManager.openRepository(allUsersName)) {
-      gc(repo, false, ui);
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    }
-  }
-
-  private void gc(Repository repo, boolean refsOnly, UpdateUI ui) {
-    if (repo instanceof FileRepository && gcLock.tryLock()) {
-      ProgressMonitor pm = null;
-      try {
-        pm = new TextProgressMonitor();
-        FileRepository r = (FileRepository) repo;
-        GC gc = new GC(r);
-        gc.setProgressMonitor(pm);
-        pm.beginTask("gc", ProgressMonitor.UNKNOWN);
-        if (refsOnly) {
-          ui.message(String.format("... (%.3f s) pack refs", elapsed()));
-          gc.packRefs();
-        } else {
-          // TODO(ms): Enable bitmap index when this JGit performance issue is fixed:
-          // https://bugs.eclipse.org/bugs/show_bug.cgi?id=562740
-          PackConfig pconfig = new PackConfig(repo);
-          pconfig.setBuildBitmaps(false);
-          gc.setPackConfig(pconfig);
-          ui.message(String.format("... (%.3f s) gc --prune=now", elapsed()));
-          gc.setExpire(new Date());
-          gc.gc();
-        }
-      } catch (IOException | ParseException e) {
-        throw new RuntimeException(e);
-      } finally {
-        gcLock.unlock();
-        if (pm != null) {
-          pm.endTask();
-        }
-      }
     }
   }
 

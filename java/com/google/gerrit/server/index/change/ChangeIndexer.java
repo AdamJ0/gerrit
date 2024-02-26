@@ -32,6 +32,7 @@ import com.google.gerrit.reviewdb.server.ReviewDb;
 import com.google.gerrit.server.CurrentUser;
 import com.google.gerrit.server.config.AllProjectsName;
 import com.google.gerrit.server.config.AllProjectsNameProvider;
+import com.google.gerrit.server.cache.PerThreadCache;
 import com.google.gerrit.server.config.GerritServerConfig;
 import com.google.gerrit.server.index.IndexExecutor;
 import com.google.gerrit.server.index.IndexUtils;
@@ -685,8 +686,10 @@ public class ChangeIndexer {
     @Override
     public Void callImpl(Provider<ReviewDb> db) throws Exception {
       remove();
-      ChangeData cd = newChangeData(db.get(), project, id);
-      index(cd);
+      try (PerThreadCache perThreadCache = PerThreadCache.createReadOnly()) {
+        ChangeData cd = newChangeData(db.get(), project, id);
+        index(cd);
+      }
       return null;
     }
 
@@ -824,7 +827,7 @@ public class ChangeIndexer {
   // less-contentious rebuild.
   private ChangeData newChangeData(ReviewDb db, Change change) throws OrmException {
     if (!notesMigration.readChanges()) {
-      ChangeNotes notes = changeNotesFactory.createWithAutoRebuildingDisabled(change, null);
+      ChangeNotes notes = changeNotesFactory.createWithAutoRebuildingDisabled(change);
       return changeDataFactory.create(db, notes);
     }
     return changeDataFactory.create(db, change);

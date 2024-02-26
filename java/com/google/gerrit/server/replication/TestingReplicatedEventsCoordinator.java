@@ -1,7 +1,6 @@
 package com.google.gerrit.server.replication;
 
 import com.google.gerrit.index.project.ProjectIndexer;
-import com.google.gerrit.server.events.EventBroker;
 import com.google.gerrit.server.index.group.GroupIndexer;
 import com.google.gerrit.server.notedb.ChangeNotes;
 import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
@@ -11,7 +10,7 @@ import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingCacheEventsF
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingIndexEventsFeed;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingProjectEventsFeed;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingProjectIndexEventsFeed;
-import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingStreamEventsFeed;
+import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingServerEventsFeed;
 import com.google.gerrit.server.replication.modules.ReplicationModule;
 import com.google.gerrit.server.replication.processors.ReplicatedEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingAccountGroupIndexEventProcessor;
@@ -20,7 +19,7 @@ import com.google.gerrit.server.replication.processors.ReplicatedIncomingCacheEv
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingIndexEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingProjectEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingProjectIndexEventProcessor;
-import com.google.gerrit.server.replication.streamlistener.ReplicatedStreamEventsApiListener;
+import com.google.gerrit.server.replication.processors.ReplicatedIncomingServerEventProcessor;
 import com.google.gerrit.server.replication.workers.ReplicatedIncomingEventWorker;
 import com.google.gerrit.server.replication.workers.ReplicatedOutgoingEventWorker;
 import com.google.gerrit.reviewdb.server.ReviewDb;
@@ -33,6 +32,7 @@ import com.google.inject.Injector;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 
+import java.io.File;
 import java.util.Map;
 import java.util.Properties;
 
@@ -42,17 +42,26 @@ import static com.google.gerrit.server.replication.configuration.ReplicationCons
 public class TestingReplicatedEventsCoordinator implements ReplicatedEventsCoordinator {
 
   ReplicatedConfiguration replicatedConfiguration;
+  ReplicatedIncomingCacheEventProcessor replicatedIncomingCacheEventProcessor;
+  ReplicatedIncomingEventWorker replicatedIncomingEventWorker;
+  ReplicatedOutgoingEventWorker replicatedOutgoingEventWorker;
 
   public TestingReplicatedEventsCoordinator() throws ConfigInvalidException {
     Properties testingProperties = new Properties();
     testingProperties.put(REPLICATION_DISABLED, true);
     replicatedConfiguration = new ReplicatedConfiguration(testingProperties);
+    replicatedIncomingCacheEventProcessor = new ReplicatedIncomingCacheEventProcessor(this);
+    replicatedIncomingEventWorker = new ReplicatedIncomingEventWorker(this);
+    replicatedOutgoingEventWorker = new ReplicatedOutgoingEventWorker(this);
   }
 
   // allow supply of config.
-  public TestingReplicatedEventsCoordinator( Properties testingProperties) throws Exception {
+  public TestingReplicatedEventsCoordinator(Properties testingProperties) throws Exception {
     replicatedConfiguration = new ReplicatedConfiguration(testingProperties);
     ensureEventsDirectoriesExistForTests();
+    replicatedIncomingCacheEventProcessor = new ReplicatedIncomingCacheEventProcessor(this);
+    replicatedIncomingEventWorker = new ReplicatedIncomingEventWorker(this);
+    replicatedOutgoingEventWorker = new ReplicatedOutgoingEventWorker(this);
   }
 
   @Override
@@ -96,11 +105,6 @@ public class TestingReplicatedEventsCoordinator implements ReplicatedEventsCoord
   }
 
   @Override
-  public EventBroker getEventBroker() {
-    return null;
-  }
-
-  @Override
   public GitRepositoryManager getGitRepositoryManager() {
     return null;
   }
@@ -141,16 +145,6 @@ public class TestingReplicatedEventsCoordinator implements ReplicatedEventsCoord
   }
 
   @Override
-  public ReplicatedEventRequestScope getReplicatedEventRequestScope() {
-    return null;
-  }
-
-  @Override
-  public ReplicatedStreamEventsApiListener getReplicatedStreamEventsApiListener() {
-    return null;
-  }
-
-  @Override
   public ReplicatedIncomingIndexEventProcessor getReplicatedIncomingIndexEventProcessor() {
     return null;
   }
@@ -166,8 +160,13 @@ public class TestingReplicatedEventsCoordinator implements ReplicatedEventsCoord
   }
 
   @Override
-  public ReplicatedIncomingCacheEventProcessor getReplicatedIncomingCacheEventProcessor() {
+  public ReplicatedIncomingServerEventProcessor getReplicatedIncomingServerEventProcessor() {
     return null;
+  }
+
+  @Override
+  public ReplicatedIncomingCacheEventProcessor getReplicatedIncomingCacheEventProcessor() {
+    return replicatedIncomingCacheEventProcessor;
   }
 
   @Override
@@ -205,20 +204,19 @@ public class TestingReplicatedEventsCoordinator implements ReplicatedEventsCoord
     return null;
   }
 
-
   @Override
-  public ReplicatedOutgoingStreamEventsFeed getReplicatedOutgoingStreamEventsFeed() {
+  public ReplicatedOutgoingServerEventsFeed getReplicatedOutgoingServerEventsFeed() {
     return null;
   }
 
   @Override
   public ReplicatedIncomingEventWorker getReplicatedIncomingEventWorker() {
-    return null;
+    return replicatedIncomingEventWorker;
   }
 
   @Override
   public ReplicatedOutgoingEventWorker getReplicatedOutgoingEventWorker() {
-    return null;
+    return replicatedOutgoingEventWorker;
   }
 
   @Override
@@ -245,25 +243,21 @@ public class TestingReplicatedEventsCoordinator implements ReplicatedEventsCoord
   }
 
   private void ensureEventsDirectoriesExistForTests() throws Exception {
-    if (!replicatedConfiguration.getIncomingReplEventsDirectory().exists()) {
-      if (!replicatedConfiguration.getIncomingReplEventsDirectory().mkdirs()) {
+    checkForEventsDirectoryExists(replicatedConfiguration.getIncomingReplEventsDirectory());
+    checkForEventsDirectoryExists(replicatedConfiguration.getIncomingTemporaryReplEventsDirectory());
+    checkForEventsDirectoryExists(replicatedConfiguration.getIncomingFailedReplEventsDirectory());
+
+    checkForEventsDirectoryExists(replicatedConfiguration.getOutgoingReplEventsDirectory());
+    checkForEventsDirectoryExists(replicatedConfiguration.getOutgoingTemporaryReplEventsDirectory());
+  }
+
+  private void checkForEventsDirectoryExists(final File eventsDirectoryToCheck) throws Exception {
+    if (!eventsDirectoryToCheck.exists()) {
+      if (!eventsDirectoryToCheck.mkdirs()) {
         throw new Exception("RE {} path cannot be created! Replicated events will not work!" +
-            replicatedConfiguration.getIncomingReplEventsDirectory().getAbsolutePath());
+            eventsDirectoryToCheck.getAbsolutePath());
       }
 
-    }
-    if (!replicatedConfiguration.getOutgoingReplEventsDirectory().exists()) {
-      if (!replicatedConfiguration.getOutgoingReplEventsDirectory().mkdirs()) {
-        throw new Exception("RE {} path cannot be created! Replicated outgoing events will not work!" +
-            replicatedConfiguration.getOutgoingReplEventsDirectory().getAbsolutePath());
-      }
-
-    }
-    if (!replicatedConfiguration.getIncomingFailedReplEventsDirectory().exists()) {
-      if (!replicatedConfiguration.getIncomingFailedReplEventsDirectory().mkdirs()) {
-        throw new Exception("RE {} path cannot be created! Replicated failed events will not work!" +
-            replicatedConfiguration.getIncomingFailedReplEventsDirectory().getAbsolutePath());
-      }
     }
   }
 

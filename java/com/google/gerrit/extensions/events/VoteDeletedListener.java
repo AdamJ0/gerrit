@@ -22,7 +22,7 @@ import java.util.Map;
 /** Notified whenever a vote is removed from a change. */
 @ExtensionPoint
 public interface VoteDeletedListener {
-  interface Event extends RevisionEvent, ReplicatedStreamEvent {
+  interface Event extends RevisionEvent {
     Map<String, ApprovalInfo> getOldApprovals();
 
     Map<String, ApprovalInfo> getApprovals();

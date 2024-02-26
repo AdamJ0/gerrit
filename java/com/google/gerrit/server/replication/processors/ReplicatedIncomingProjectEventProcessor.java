@@ -44,6 +44,7 @@ public class ReplicatedIncomingProjectEventProcessor extends AbstractReplicatedE
 
   @Override
   public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedIncomingProjectEventProcessor.class);
     unsubscribeEvent(this);
   }
 

@@ -19,7 +19,7 @@ import com.google.gerrit.extensions.annotations.ExtensionPoint;
 /** Notified whenever a Change Topic is changed. */
 @ExtensionPoint
 public interface TopicEditedListener {
-  interface Event extends ChangeEvent, ReplicatedStreamEvent {
+  interface Event extends ChangeEvent {
     String getOldTopic();
   }
 

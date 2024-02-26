@@ -330,7 +330,8 @@ ulimit -c 0            ; # core file size
 ulimit -d unlimited    ; # data seg size
 ulimit -f unlimited    ; # file size
 ulimit -m >/dev/null 2>&1 && ulimit -m unlimited  ; # max memory size
-ulimit -n $GERRIT_FDS  ; # open files
+#GER-1848: Removing gerrit setting of its own FD limit to follow session's limits instead.
+#ulimit -n $GERRIT_FDS  ; # open files
 ulimit -t unlimited    ; # cpu time
 ulimit -v unlimited    ; # virtual memory
 

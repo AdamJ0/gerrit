@@ -15,7 +15,7 @@
 package com.google.gerrit.extensions.events;
 
 public interface WorkInProgressStateChangedListener {
-  interface Event extends RevisionEvent, ReplicatedStreamEvent {}
+  interface Event extends RevisionEvent {}
 
   void onWorkInProgressStateChanged(Event event);
 }

@@ -17,7 +17,6 @@ package com.google.gerrit.server.restapi.project;
 import com.google.common.base.Strings;
 import com.google.gerrit.extensions.api.projects.HeadInput;
 import com.google.gerrit.extensions.events.HeadUpdatedListener;
-import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.extensions.restapi.AuthException;
 import com.google.gerrit.extensions.restapi.BadRequestException;
 import com.google.gerrit.extensions.restapi.ResourceNotFoundException;
@@ -27,21 +26,17 @@ import com.google.gerrit.reviewdb.client.Project;
 import com.google.gerrit.reviewdb.client.RefNames;
 import com.google.gerrit.server.IdentifiedUser;
 import com.google.gerrit.server.extensions.events.AbstractNoNotifyEvent;
-import com.google.gerrit.server.extensions.events.isReplicatedStreamEvent;
 import com.google.gerrit.server.git.GitRepositoryManager;
 import com.google.gerrit.server.permissions.PermissionBackend;
 import com.google.gerrit.server.permissions.PermissionBackendException;
 import com.google.gerrit.server.permissions.RefPermission;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
 import com.google.gerrit.server.project.ProjectResource;
-import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.inject.Inject;
 import com.google.inject.Provider;
 import com.google.inject.Singleton;
 import java.io.IOException;
 import java.util.Map;
-import java.util.StringJoiner;
-
 import org.eclipse.jgit.errors.RepositoryNotFoundException;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.Ref;
@@ -54,21 +49,17 @@ public class SetHead implements RestModifyView<ProjectResource, HeadInput> {
   private final Provider<IdentifiedUser> identifiedUser;
   private final PluginSetContext<HeadUpdatedListener> headUpdatedListeners;
   private final PermissionBackend permissionBackend;
-  private final Provider<ReplicatedEventsCoordinator> replicatedEventsCoordinator;
-
 
   @Inject
   SetHead(
       GitRepositoryManager repoManager,
       Provider<IdentifiedUser> identifiedUser,
       PluginSetContext<HeadUpdatedListener> headUpdatedListeners,
-      PermissionBackend permissionBackend,
-      Provider<ReplicatedEventsCoordinator> replicatedEventsCoordinator) {
+      PermissionBackend permissionBackend) {
     this.repoManager = repoManager;
     this.identifiedUser = identifiedUser;
     this.headUpdatedListeners = headUpdatedListeners;
     this.permissionBackend = permissionBackend;
-    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   @Override
@@ -129,30 +120,16 @@ public class SetHead implements RestModifyView<ProjectResource, HeadInput> {
       return;
     }
 
-    Event event = new Event(nameKey, oldHead, newHead, replicatedEventsCoordinator.get().getThisNodeIdentity());
+    Event event = new Event(nameKey, oldHead, newHead);
     headUpdatedListeners.runEach(l -> l.onHeadUpdated(event));
   }
 
-  /**
-   * fire stream event off for its respective listeners to pick up.
-   * @param streamEvent HeadUpdatedListener.Event
-   */
-  public void fire(HeadUpdatedListener.Event streamEvent) {
-    if (headUpdatedListeners.isEmpty()) {
-      return;
-    }
-    headUpdatedListeners.runEach(l -> l.onHeadUpdated(streamEvent));
-  }
-
-  @isReplicatedStreamEvent
-  private static class Event extends AbstractNoNotifyEvent implements HeadUpdatedListener.Event {
-
+  static class Event extends AbstractNoNotifyEvent implements HeadUpdatedListener.Event {
     private final Project.NameKey nameKey;
     private final String oldHead;
     private final String newHead;
 
-    Event(Project.NameKey nameKey, String oldHead, String newHead, final String nodeIdentity) {
-      super(nodeIdentity);
+    Event(Project.NameKey nameKey, String oldHead, String newHead) {
       this.nameKey = nameKey;
       this.oldHead = oldHead;
       this.newHead = newHead;
@@ -171,45 +148,6 @@ public class SetHead implements RestModifyView<ProjectResource, HeadInput> {
     @Override
     public String getNewHeadName() {
       return newHead;
-    }
-
-    @Override
-    public String nodeIdentity() {
-      return super.getNodeIdentity();
-    }
-
-    @Override
-    public String className() {
-      return this.getClass().getName();
-    }
-
-    @Override
-    public String projectName() {
-      return getProjectName();
-    }
-
-    @Override
-    public void setStreamEventReplicated(boolean replicated) {
-      hasBeenReplicated = replicated;
-    }
-
-    @Override
-    public boolean replicationSuccessful() {
-      return hasBeenReplicated;
-    }
-
-    @Override
-    public String toString() {
-
-      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
-              .add("nameKey=" + nameKey)
-              .add("oldHead='" + oldHead + "'")
-              .add("newHead='" + newHead + "'")
-              .add("hasBeenReplicated=" + super.hasBeenReplicated)
-              .add("eventTimestamp=" + getEventTimestamp())
-              .add("eventNanoTime=" + getEventNanoTime())
-              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
-              .toString();
     }
   }
 }

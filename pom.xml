@@ -1,0 +1,192 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <!-- Project information -->
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>gerrit-installer-aggregator</artifactId>
+    <version>2.16.28-RP-1.11.0.2</version>
+
+    <packaging>pom</packaging>
+    <name>Gerrit-Installer-Aggregator</name>
+    <description>WANDisco Pom that runs the Makefile targets responsible
+        for deploying assets and listing assets via the exec-maven-plugin. This pom is for internal company use.</description>
+
+    <modules>
+      <module>gerrit-installer-build</module>
+      <module>gerrit-api-comparison</module>
+      <module>gerrit-installer-trigger</module>
+      <module>gerrit-packaging-deployment</module>
+    </modules>
+
+    <properties>
+        <alm-common-bom-version>1.11.0.2-GERRITMS</alm-common-bom-version>
+
+        <!-- Properties from maven-common fast-assembly profile-->
+        <!-- Testing Skipping Properties -->
+        <skipITs>true</skipITs>
+        <skipUTs>true</skipUTs>
+        <!-- maven.test.skip is here to skip tests on surefire plugin usually used for unit tests.
+        This should only affect projects which didn't add our own skipUTs property, which we
+        are meant to use regardless of plugin used. -->
+        <maven.test.skip>true</maven.test.skip>
+        <skipCodeCoverage>true</skipCodeCoverage>
+        <codeTargetPercentage>0%</codeTargetPercentage>
+        <skipConvergenceEnforcement>true</skipConvergenceEnforcement>
+
+        <!-- Other Plugin / functionality behaviour control -->
+        <skipFindBugs>true</skipFindBugs>
+        <skipPMD>true</skipPMD>
+        <skipPmdWDRuleset>true</skipPmdWDRuleset>
+        <skipSecurityCheck>true</skipSecurityCheck>
+        <skipLicenseHeadersCheck>true</skipLicenseHeadersCheck>
+        <skipLicenseHeadersUpdate>true</skipLicenseHeadersUpdate>
+        <skipJavaDoc>true</skipJavaDoc>
+        <skipCheckStyle>true</skipCheckStyle>
+        <skipEnunciate>true</skipEnunciate>
+    </properties>
+
+    <parent>
+        <groupId>com.wandisco</groupId>
+        <artifactId>maven-common</artifactId>
+        <version>1.8.1</version>
+    </parent>
+
+    <repositories>
+        <repository>
+            <id>wd_central</id>
+            <name>WANdisco central</name>
+            <url>https://artifacts.wandisco.com/artifactory/central</url>
+        </repository>
+    </repositories>
+
+    <!-- we can now obtain any plugin via our cental virtual repo in artifactory -->
+    <pluginRepositories>
+        <pluginRepository>
+            <id>wd_central_plugins</id>
+            <name>WANdisco central plugins</name>
+            <url>https://artifacts.wandisco.com/artifactory/central</url>
+        </pluginRepository>
+    </pluginRepositories>
+
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <!-- Moving to use the WANdisco ALM Bill of Materials ( BOM ) to describe the matching version numbers for a given
+                release version.
+                ref: https://gerrit.wandisco.com/plugins/gitblit/blob/?r=alm-common-bom.git&f=README.md&h=master -->
+                <groupId>com.wandisco</groupId>
+                <artifactId>alm-common-bom</artifactId>
+                <version>${alm-common-bom-version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.wandisco</groupId>
+            <artifactId>gerrit-gitms-interface</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.eclipse.jgit</groupId>
+            <artifactId>org.eclipse.jgit</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.wandisco</groupId>
+            <artifactId>alm-common-bom</artifactId>
+            <classifier>properties</classifier>
+            <type>tar.gz</type>
+        </dependency>
+    </dependencies>
+    <!-- Distribution management for gerrit is different - we use libs-staging for snapshots and
+     the release builds - so ensure to override maven-common defaults here. On build jenkins machines
+     this can be overriden by the plugin - but incase its a freestyle job, or run locally lets set
+     it up as expected.  -->
+    <distributionManagement>
+      <snapshotRepository>
+        <id>${distributionMgmtStagingId}</id>
+        <name>${distributionMgmtStagingName}</name>
+        <url>${distributionMgmtStagingUrl}</url>
+      </snapshotRepository>
+      <repository>
+        <id>${distributionMgmtStagingId}</id>
+        <name>${distributionMgmtStagingName}</name>
+        <url>${distributionMgmtStagingUrl}</url>
+      </repository>
+    </distributionManagement>
+
+    <build>
+      <pluginManagement>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-install-plugin</artifactId>
+            <version>3.1.1</version>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-deploy-plugin</artifactId>
+            <!-- Notice this must be 2.8.2 version as the other 3.x versions do not generatePOM correctly
+            at all, they use any pom they can find in the JAR being uploaded which is incorrect -->
+            <version>2.8.2</version>
+          </plugin>
+        </plugins>
+      </pluginManagement>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>unpack-deps</id>
+                        <!-- we have to unpack up front now before we process any sources
+                        as we read in the property information from the alm-bom so we know what versions of items
+                        to include elsewhere. -->
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>unpack-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <includeArtifactIds>alm-common-bom</includeArtifactIds>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>properties-maven-plugin</artifactId>
+                <version>1.0.0</version>
+                <executions>
+                    <execution>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>read-project-properties</goal>
+                        </goals>
+                        <configuration>
+                            <files>
+                                <file>
+                                    target/dependency/alm-common-bom/target/generated-sources/resources/alm-common-bom.properties
+                                </file>
+                            </files>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Use this profile to set the system property maven.repo.local.-->
+        <profile>
+            <id>use-default-local-repo</id>
+            <properties>
+                <maven.repo.local>${user.home}/.m2/repository</maven.repo.local>
+            </properties>
+        </profile>
+    </profiles>
+
+</project>

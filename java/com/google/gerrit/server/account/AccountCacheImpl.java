@@ -117,15 +117,27 @@ public class AccountCacheImpl implements AccountCache {
   /**
    * Asks the replicated coordinator for the instance of the ReplicatedOutgoingCacheEventsFeed and calls
    * replicateEvictionFromCache on it.
+   * N.B. Always evict the accounts caches using the ALL_USERS project DSM.
    * @param name : Name of the cache to evict from.
    * @param value : Value to evict from the cache.
    */
-  private void replicateEvictionFromCache(String name, Object value) {
+  private void replicateEvictionFromCache(String name, Account.Id value) {
     if(replicatedEventsCoordinator.isReplicationEnabled()) {
-      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value);
+      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value, allUsersName.get());
     }
   }
-
+  /**
+   * Asks the replicated coordinator for the instance of the ReplicatedOutgoingCacheEventsFeed and calls
+   * replicateEvictionFromCache on it ( evict ALL )
+   * N.B. Always evict the accounts caches using the ALL_USERS project DSM.
+   * @param name : Name of the cache to evict from.
+   * @param value : Actually this is only used to send a special EvictAll cases currently with a magic string.
+   */
+  private void replicateEvictionFromCache(String name, String value) {
+    if(replicatedEventsCoordinator.isReplicationEnabled()) {
+      replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value, allUsersName.get());
+    }
+  }
 
   @Override
   public AccountState getEvenIfMissing(Account.Id accountId) {

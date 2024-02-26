@@ -422,7 +422,7 @@ public class GitOverHttpServlet extends GitServlet {
      */
     private void replicateEvictionFromCache(String name, AdvertisedObjectsCacheKey value) {
       if (replicatedEventsCoordinator.isReplicationEnabled()) {
-        replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value);
+        replicatedEventsCoordinator.getReplicatedOutgoingCacheEventsFeed().replicateEvictionFromCache(name, value, value.project().get());
       }
     }
 

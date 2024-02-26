@@ -18,11 +18,6 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertEquals;
 
 import com.google.common.base.Strings;
-import com.google.gerrit.server.extensions.events.AbstractChangeEvent;
-import com.google.gerrit.server.extensions.events.AbstractNoNotifyEvent;
-import com.google.gerrit.server.extensions.events.AbstractRevisionEvent;
-import com.google.gerrit.server.extensions.events.GitReferenceUpdated;
-import com.google.gerrit.server.extensions.events.isReplicatedStreamEvent;
 import org.junit.Test;
 import org.reflections.Reflections;
 import org.reflections.scanners.MemberUsageScanner;
@@ -146,92 +141,6 @@ public class EventTypesTest {
     assertEquals("There is a mismatch between the number of server events and the number of server events annotated " +
             "with @isReplicatedServerEvent", serverEventTypes.size(), isReplicatedServerEventType.size());
 
-  }
-
-
-  /**
-   * All ReplicatedStreamEvents are annotated with @isReplicatedStreamEvent. If any new events
-   * are added to the extensions/events package then they will not have been annotated and this test should fail.
-   * There are also events that inherit from either AbstractChangeEvent OR AbstractNoNotifyEvent that do not live
-   * in the com.google.gerrit.server.extensions.events package. If any event type is found to inherit from these two
-   * base classes but does not have the @isReplicatedStreamEvent annotation, then the test will also fail.
-   * @throws Exception
-   */
-  @Test
-  public void test_CheckAllStreamEventsAreAnnotated() throws Exception {
-
-    // Using google reflections, get all reflections for the extensions.events package. App Classloader
-    // is required for the configuration.
-    Reflections reflections = getReflectionsForPackage("com.google.gerrit.server.extensions.events");
-
-    // It is known that some stream event classes live outside the extensions.events package in the
-    // restapi.project package. Scan this package also, so we can add to our class tally.
-    Reflections restApiReflections = getReflectionsForPackage("com.google.gerrit.server.restapi.project");
-
-    // Build a set of all subTypes of AbstractChangeEvent
-    Set<Class<? extends AbstractChangeEvent>> changeEventTypes =
-            reflections.getSubTypesOf(AbstractChangeEvent.class);
-
-    Set<Class<? extends AbstractChangeEvent>> restApiChangeEventTypes =
-            restApiReflections.getSubTypesOf(AbstractChangeEvent.class);
-
-    //Combining the ChangeEventTypes from the restApi package with the ones found in the extensions package.
-    changeEventTypes.addAll(restApiChangeEventTypes);
-    // AbstractRevisionEvent is a parent type of some event types but is not in itself an event. Removing
-    // so the numbers are not skewed.
-    changeEventTypes.remove(AbstractRevisionEvent.class);
-
-    // Build a set of all subTypes of AbstractNoNotifyEvent
-    Set<Class<? extends AbstractNoNotifyEvent>> noNotifyEventTypes =
-            reflections.getSubTypesOf(AbstractNoNotifyEvent.class);
-
-    Set<Class<? extends AbstractNoNotifyEvent>> restApiNoNotifyEventTypes =
-            restApiReflections.getSubTypesOf(AbstractNoNotifyEvent.class);
-
-    //Combining the NoNotifyEventTypes from the restApi package with the ones found in the extensions package.
-    noNotifyEventTypes.addAll(restApiNoNotifyEventTypes);
-
-    // Combine the two main sets to form a single superset.
-    Set<Class<?>> allTypes = new HashSet<>();
-    allTypes.addAll(changeEventTypes);
-    allTypes.addAll(noNotifyEventTypes);
-    //GitReferenceUpdated does not inherit from AbstractChangeEvent or AbstractNoNotifyEvent. Adding separately.
-    allTypes.add(GitReferenceUpdated.class);
-
-    // Compare the classes contained in the combined set with the set of all
-    // classes annotated with isReplicatedStreamEvent. They should match.
-    Set<Class<?>> isReplicatedStreamEventTypesExtensionPkg =
-            reflections.getTypesAnnotatedWith(isReplicatedStreamEvent.class);
-
-    Set<Class<?>> isReplicatedStreamEventTypesRestApiPkg =
-            restApiReflections.getTypesAnnotatedWith(isReplicatedStreamEvent.class);
-
-    Set<Class<?>> allIsReplicatedStreamEventTypes = new HashSet<>();
-    allIsReplicatedStreamEventTypes.addAll(isReplicatedStreamEventTypesExtensionPkg);
-    allIsReplicatedStreamEventTypes.addAll(isReplicatedStreamEventTypesRestApiPkg);
-
-    assertEquals("The number of classes that inherit from AbstractChangeEvent OR AbstractNotNotifyEvent does not " +
-            "match the number of classes annotated with @isReplicatedStreamEvent", allIsReplicatedStreamEventTypes.size(),
-            allTypes.size());
-    
-    // Finally, looking at all the classes that contain a static inner Event class and making sure that
-    // we have the same number of these classes found across packages vs the number of Event classes we
-    // have annotated with @isReplicatedStreamEvent.
-    Set<Class<?>> classesThatContainStaticEventClass = new HashSet<>();
-    classesThatContainStaticEventClass.addAll(getAllClassesWithStaticEventsInPackage("com.google.gerrit.server.extensions.events"));
-    classesThatContainStaticEventClass.addAll(getAllClassesWithStaticEventsInPackage("com.google.gerrit.server.restapi.project"));
-    classesThatContainStaticEventClass.addAll(getAllClassesWithStaticEventsInPackage("com.google.gerrit.server.git"));
-
-    assertEquals("The number of classes that contain a static inner Event class does not match the number of classes " +
-            "annotated with @isReplicatedStreamEvent", allIsReplicatedStreamEventTypes.size(), classesThatContainStaticEventClass.size());
-
-    // Final check is to make sure that there are no set differences between all the types we know about vs
-    // the types of events that are subclasses of AbstractChangeEvent/AbstractNoNotify event.
-    Set<String> modifiedAllTypes = allTypes.stream().map(Class::getCanonicalName).collect(Collectors.toSet());
-    modifiedAllTypes = modifiedAllTypes.stream().map(c -> c.replace(".Event", "")).collect(Collectors.toSet());
-
-    checkEventSetDifferences(modifiedAllTypes,
-            classesThatContainStaticEventClass.stream().map(Class::getName).collect(Collectors.toSet()));
   }
 
   @Test(expected = AssertionError.class)

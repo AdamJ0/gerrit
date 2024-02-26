@@ -40,6 +40,7 @@ public class ReplicatedIncomingAccountUserIndexEventProcessor extends AbstractRe
 
   @Override
   public void stop() {
+    SingletonEnforcement.unregisterClass(ReplicatedIncomingAccountUserIndexEventProcessor.class);
     unsubscribeEvent(this);
   }
 

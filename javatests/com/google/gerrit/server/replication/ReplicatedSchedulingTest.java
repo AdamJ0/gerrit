@@ -1,11 +1,10 @@
 package com.google.gerrit.server.replication;
 
-import com.google.gerrit.reviewdb.client.Account;
-import com.google.gerrit.server.replication.customevents.AccountUserIndexEvent;
 import com.google.gerrit.server.replication.workers.ReplicatedIncomingEventWorker;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
 import nl.jqno.equalsverifier.EqualsVerifier;
 import nl.jqno.equalsverifier.Warning;
+import org.eclipse.jgit.util.FS;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -16,10 +15,20 @@ import org.junit.rules.ExpectedException;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.attribute.FileTime;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import static com.google.gerrit.server.replication.processors.ReplicatedIncomingIndexEventProcessor.buildListOfMissingIds;
-import static com.wandisco.gerrit.gitms.shared.events.EventWrapper.Originator.ACCOUNT_USER_INDEX_EVENT;
 
 public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
 
@@ -67,7 +76,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
     Assert.assertEquals(0, scheduling.getNumEventFilesInProgress());
     Assert.assertEquals(0, scheduling.getNumberOfCoreProjectsInProgress());
 
-    EventWrapper dummyWrapper = createIndexEventWrapper("SkipMe1");
+    EventWrapper dummyWrapper = createAccountIndexEventWrapper("SkipMe1");
 
     // Note we use random UUIDs, so we need to ensure correct ordering for below to work its not just a FIFO now,
     // its a prioritised queue to ensure we always keep the correct first event at HEAD of the queue.
@@ -115,7 +124,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
     Assert.assertEquals(0, scheduling.getNumEventFilesInProgress());
     Assert.assertEquals(0, scheduling.getNumberOfCoreProjectsInProgress());
 
-    EventWrapper dummyWrapper = createIndexEventWrapper("SkipMe1");
+    EventWrapper dummyWrapper = createAccountIndexEventWrapper("SkipMe1");
 
     // Note we use random UUIDs, so we need to ensure correct ordering for below to work its not just a FIFO now,
     // its a prioritised queue to ensure we always keep the correct first event at HEAD of the queue.
@@ -176,7 +185,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
     Assert.assertEquals(0, scheduling.getNumEventFilesInProgress());
     Assert.assertEquals(0, scheduling.getNumberOfCoreProjectsInProgress());
 
-    EventWrapper dummyWrapper = createIndexEventWrapper("SkipMe1");
+    EventWrapper dummyWrapper = createAccountIndexEventWrapper("SkipMe1");
 
     // Note we use random UUIDs, so we need to ensure correct ordering for below to work its not just a FIFO now,
     // its a prioritised queue to ensure we always keep the correct first event at HEAD of the queue.
@@ -207,7 +216,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
 
     // Lets make another event file and skip it also for a different project to ensure they dont
     // overlap
-    EventWrapper dummyWrapper2 = createIndexEventWrapper("SkipMe2");
+    EventWrapper dummyWrapper2 = createAccountIndexEventWrapper("SkipMe2");
 
     // add 2 to skipme2
     scheduling.addSkippedProjectEventFile(eventInfoIndex1, dummyWrapper2.getProjectName());
@@ -243,7 +252,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
     Assert.assertEquals(0, scheduling.getNumberOfCoreProjectsInProgress());
 
     {
-      EventWrapper dummyWrapper = createIndexEventWrapper("All-Users");
+      EventWrapper dummyWrapper = createAccountIndexEventWrapper("All-Users");
       ReplicatedEventTask replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
       Assert.assertNotNull(replicatedEventTask);
       Assert.assertEquals(dummyWrapper.getProjectName(), replicatedEventTask.getProjectname());
@@ -251,7 +260,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
     }
 
     {
-      EventWrapper dummyWrapper = createIndexEventWrapper("All-Projects");
+      EventWrapper dummyWrapper = createAccountIndexEventWrapper("All-Projects");
       ReplicatedEventTask replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
       Assert.assertNotNull(replicatedEventTask);
       Assert.assertEquals(dummyWrapper.getProjectName(), replicatedEventTask.getProjectname());
@@ -260,7 +269,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
 
 
     {
-      EventWrapper dummyWrapper = createIndexEventWrapper("ProjectA");
+      EventWrapper dummyWrapper = createAccountIndexEventWrapper("ProjectA");
       ReplicatedEventTask replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
       Assert.assertNotNull(replicatedEventTask);
       Assert.assertEquals(dummyWrapper.getProjectName(), replicatedEventTask.getProjectname());
@@ -268,14 +277,14 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
 
 
     {
-      EventWrapper dummyWrapper = createIndexEventWrapper("ProjectB");
+      EventWrapper dummyWrapper = createAccountIndexEventWrapper("ProjectB");
       ReplicatedEventTask replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
       Assert.assertNotNull(replicatedEventTask);
       Assert.assertEquals(dummyWrapper.getProjectName(), replicatedEventTask.getProjectname());
     }
 
     {
-      EventWrapper dummyWrapper = createIndexEventWrapper("ThisShouldFail!!");
+      EventWrapper dummyWrapper = createAccountIndexEventWrapper("ThisShouldFail!!");
       ReplicatedEventTask replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
       Assert.assertNull(replicatedEventTask);
     }
@@ -295,7 +304,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
 
     ReplicatedEventTask replicatedEventTask;
     {
-      EventWrapper dummyWrapper = createIndexEventWrapper("All-Users");
+      EventWrapper dummyWrapper = createAccountIndexEventWrapper("All-Users");
       replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
       Assert.assertEquals(1, scheduling.getNumberOfCoreProjectsInProgress());
       Assert.assertEquals(1, scheduling.getNumEventFilesInProgress());
@@ -304,7 +313,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
     }
 
     {
-      EventWrapper dummyWrapper = createIndexEventWrapper("ProjectX");
+      EventWrapper dummyWrapper = createAccountIndexEventWrapper("ProjectX");
       replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
       Assert.assertNotNull(replicatedEventTask);
       Assert.assertEquals(1, scheduling.getNumberOfCoreProjectsInProgress());
@@ -313,7 +322,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
     }
 
     {
-      EventWrapper dummyWrapper = createIndexEventWrapper("ProjectY");
+      EventWrapper dummyWrapper = createAccountIndexEventWrapper("ProjectY");
       replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
       Assert.assertNotNull(replicatedEventTask);
       Assert.assertEquals(1, scheduling.getNumberOfCoreProjectsInProgress());
@@ -324,7 +333,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
     // lastly when full - so no more general threads - it should return null event though
     // there is another thread for all projects - its reserved so can't be used.
     {
-      EventWrapper dummyWrapper = createIndexEventWrapper("ProjectZ");
+      EventWrapper dummyWrapper = createAccountIndexEventWrapper("ProjectZ");
       replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
       Assert.assertNull(replicatedEventTask);
     }
@@ -352,7 +361,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
   @Test
   public void testSchedulingOfProjectWhenSkippedShouldNotSchedule() throws IOException {
 
-    EventWrapper dummyWrapper = createIndexEventWrapper("All-Users");
+    EventWrapper dummyWrapper = createAccountIndexEventWrapper("All-Users");
     File dummyEventFile = createDummyEventFile();
 
     ReplicatedEventTask replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, dummyEventFile);
@@ -361,7 +370,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
 
     // Mark to skip project A for all future work - make sure it cant be scheduled.
 
-    dummyWrapper = createIndexEventWrapper("ProjectA");
+    dummyWrapper = createAccountIndexEventWrapper("ProjectA");
     scheduling.addSkipThisProjectsEventsForNow(dummyWrapper.getProjectName());
 
     Assert.assertEquals("ProjectA", dummyWrapper.getProjectName());
@@ -433,7 +442,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
     scheduling.addSkippedProjectEventFile(eventFile1, projectName);
 
     // This should not be scheduled - it should go on end of list!
-    EventWrapper dummyWrapper = createIndexEventWrapper(projectName);
+    EventWrapper dummyWrapper = createAccountIndexEventWrapper(projectName);
     final ReplicatedEventTask scheduledReplicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, eventFile2);
     Assert.assertNotNull(scheduledReplicatedEventTask);
 
@@ -540,7 +549,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
   @Test
   public void testAddProjectWIPEventShallowCopyIsDirtyCopy() throws IOException {
 
-    EventWrapper dummyWrapper = createIndexEventWrapper("All-Users");
+    EventWrapper dummyWrapper = createAccountIndexEventWrapper("All-Users");
     ReplicatedEventTask replicatedEventTask = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
     Assert.assertNotNull(replicatedEventTask);
     Assert.assertEquals(dummyWrapper.getProjectName(), replicatedEventTask.getProjectname());
@@ -549,7 +558,7 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
     scheduling.addForTestingInProgress(replicatedEventTask);
 
 
-    dummyWrapper = createIndexEventWrapper("All-Projects");
+    dummyWrapper = createAccountIndexEventWrapper("All-Projects");
     ReplicatedEventTask replicatedEventTaskAllProjects = scheduling.tryScheduleReplicatedEventsTask(dummyWrapper, createDummyEventFile());
     Assert.assertNotNull(replicatedEventTaskAllProjects);
     Assert.assertEquals(dummyWrapper.getProjectName(), replicatedEventTaskAllProjects.getProjectname());
@@ -574,6 +583,81 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
   }
 
   /**
+   * check the java api last modified time is accurate enough.
+   *
+   * @throws IOException
+   */
+  @Test
+  public void testLastModifiedEventTimeResolution() throws IOException {
+
+    // Do a tight loop of checking - to try to make sure, as its hard to catch sometimes.
+    File lastEventFile =null;
+    File incomingDirectory = dummyTestCoordinator.getReplicatedConfiguration().getIncomingReplEventsDirectory();
+
+    FS.FileStoreAttributes fileStoreAttributes = FS.FileStoreAttributes.get(incomingDirectory.toPath());
+
+    long dirResolutionNs = fileStoreAttributes.getFsTimestampResolution().toNanos();
+    long dirRacynessNs = fileStoreAttributes.getMinimalRacyInterval().toNanos();
+
+    Duration incomingDirResolution = Duration.ofNanos(dirResolutionNs+ dirRacynessNs);
+
+    System.out.println(
+        String.format("Incoming Directory has file system resolution of : %s ns, racyness %s ns so sleep period is %s ms.",
+            dirResolutionNs, dirRacynessNs, incomingDirResolution.toMillis()));
+
+    long racyAllowance = 0;
+
+    for ( int index = 0; index < 10000; index++ ){
+      File eventFile = createDummyEventFile("event-resolution-testing-" + index);
+      if( lastEventFile != null ){
+        final FileTime fileLastModified = Files.getLastModifiedTime(eventFile.toPath());
+        final FileTime directoryLastModified = Files.getLastModifiedTime(incomingDirectory.toPath());
+
+        if ( !fileLastModified.equals(directoryLastModified)) {
+          // breakpoint for me to manually check.
+          if (fileLastModified.toMillis() + incomingDirResolution.toMillis() >= directoryLastModified.toMillis()) {
+            // racy allowance worked
+            racyAllowance++;
+          } else {
+            // try this event file against last event file time, and against the directory update time.
+            Assert.assertEquals("Event file folder on attempt: " + index + " has lastModifiedTime which must match the time of the last event file created within it, including the filesystem racy allowance",
+                fileLastModified, directoryLastModified);
+          }
+        }
+      }
+      // update last file processed.
+      lastEventFile = eventFile;
+    }
+
+
+    System.out.println("Racy allowance accounted for " + racyAllowance + " attempts");
+  }
+
+  private static void deleteRescursive(File itemToDelete) throws IOException {
+    if( itemToDelete.isFile() ){
+      if ( !itemToDelete.delete()) {
+        throw new IOException("Failed to delete file: " + itemToDelete.getAbsolutePath());
+      }
+      return;
+    }
+
+    // its a dir so we need to delete it in bottom up order to wipe the dirs recusively.
+    Files
+        .walk(Paths.get(itemToDelete.getAbsolutePath())) // Traverse the file tree in depth-first order
+        .sorted(Comparator.reverseOrder())
+        .forEach(path -> {
+          try {
+            Files.delete(path);  //delete each file or directory
+          } catch (IOException e) {
+            e.printStackTrace();
+          }
+        });
+    if ( itemToDelete.exists()){
+      throw new IOException("Failed to delete directory: " + itemToDelete.getAbsolutePath());
+    }
+  }
+
+  /**
    * Test equals() and hashcode() contracts.
    */
   @Test
@@ -581,13 +665,5 @@ public class ReplicatedSchedulingTest extends AbstractReplicationSetup {
   public void equalsContract() {
     EqualsVerifier.forClass(ReplicatedScheduling.class).suppress(Warning.NULL_FIELDS, Warning.ANNOTATION).verify();
   }
-
-  private EventWrapper createIndexEventWrapper(String projectName) throws IOException {
-    int randomIndexId = new Random().nextInt(1000);
-    AccountUserIndexEvent accountUserIndexEvent = new AccountUserIndexEvent(new Account.Id(randomIndexId), dummyTestCoordinator.getThisNodeIdentity());
-    return GerritEventFactory.createReplicatedAccountIndexEvent(
-        projectName, accountUserIndexEvent, ACCOUNT_USER_INDEX_EVENT);
-  }
-
 
 }

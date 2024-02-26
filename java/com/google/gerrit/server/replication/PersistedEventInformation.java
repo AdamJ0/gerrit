@@ -1,18 +1,18 @@
 package com.google.gerrit.server.replication;
 
-import com.google.common.base.Strings;
 import com.google.common.flogger.FluentLogger;
 import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gson.Gson;
 import com.wandisco.gerrit.gitms.shared.events.EventWrapper;
-import com.wandisco.gerrit.gitms.shared.events.GerritEventData;
+import com.wandisco.gerrit.gitms.shared.events.GerritEventMetadata;
 import com.wandisco.gerrit.gitms.shared.util.ObjectUtils;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Objects;
+import java.util.StringJoiner;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.google.gerrit.server.replication.configuration.ReplicationConstants.DEFAULT_NANO;
@@ -23,47 +23,85 @@ import static com.wandisco.gerrit.gitms.shared.util.StringUtils.getProjectNameSh
 public class PersistedEventInformation {
 
   private static final FluentLogger logger = FluentLogger.forEnclosingClass();
+  public static final String TMP_EVENTS_BATCH = "tmpEventsBatch-";
 
   private final long firstEventTime;
   private final File eventFile;
-  private String finalEventFileName;
+  private final File finalEventFile;
   private final FileOutputStream fileOutputStream;
   private boolean isFileOutputStreamClosed = false;
   private AtomicInteger numEventsWritten = new AtomicInteger(0);
   private ReplicatedConfiguration replicatedConfiguration;
   private final String projectName;
-  private final File outputDirectory;
+  private final File eventsFinalDirectory; // used for outgoing batch, and incoming reprocessing.  May move to passing this in, in the future, for now we have 2 constructors.
+  private final File eventsTmpDirectory; // used while building the events batch in outgoing/tmp but also in incoming/tmp while rebuilding failed events, so this can change
+
   private final Gson gson;
 
 
+  /**
+   * This constructor writes to the OUTGOING directory when creating a batch of events for processing.
+   * so all new events go into a file in outgoing/tmp/tmpEventsBatch-xxx and finally when it reaches an amount of time elapses
+   * or a max count of events it will be atomicaly renamed into the parent location with the final event name.
+   * @param replicatedEventsCoordinator
+   * @param originalEvent
+   * @throws IOException
+   */
   public PersistedEventInformation(final ReplicatedEventsCoordinator replicatedEventsCoordinator, EventWrapper originalEvent) throws IOException {
-    this.firstEventTime = System.currentTimeMillis();
-    //Project key doesn't exist in the map so create a new file
-    //Create a file with a filename composed of the contents of the event file itself.
-    this.replicatedConfiguration = replicatedEventsCoordinator.getReplicatedConfiguration();
-    this.gson = replicatedEventsCoordinator.getGson();
-    this.outputDirectory = replicatedConfiguration.getOutgoingReplEventsDirectory();
-    this.eventFile = getTempEventFile();
-    this.finalEventFileName = createThisEventsFilename(originalEvent);
-    this.fileOutputStream = new FileOutputStream(eventFile);
-    this.projectName = originalEvent.getProjectName();
+    this(replicatedEventsCoordinator,
+        createThisEventsFilename(originalEvent, replicatedEventsCoordinator.getReplicatedConfiguration().getAllProjectsName()),
+        originalEvent.getProjectName(),
+        false);
   }
 
-  //This is for updating an existing event file with new information
+  /**
+   * Constructor only used for the incoming directory currently.
+   * This is for updating(reducing) an existing event file with less events than before.
+   * Basically when we process events, the processed events are removed when we enter a failure state, leaving only the failed events behind so the events being
+   * retried are reduced each time and finally goes into the failed directory.
+   * @param replicatedEventsCoordinator
+   * @param originalEventFileName
+   * @param projectName
+   * @throws IOException
+   */
   public PersistedEventInformation(final ReplicatedEventsCoordinator replicatedEventsCoordinator,
                                    String originalEventFileName, String projectName) throws IOException {
+    this( replicatedEventsCoordinator, originalEventFileName, projectName, true);
+  }
+
+  /**
+   * Generic constructor - used by both constructors, just one is used on existing event to reduce its working events list
+   * in the incoming directory
+   * While the other creates a new events batch of information in the outgoing events directory so has no existing file.
+   * @param replicatedEventsCoordinator
+   * @param finalEventFileName
+   * @param projectName
+   * @param useIncomingDirectory
+   */
+  private PersistedEventInformation(final ReplicatedEventsCoordinator replicatedEventsCoordinator,
+                                    final String finalEventFileName,
+                                    final String projectName,
+                                    boolean useIncomingDirectory) throws IOException {
     this.firstEventTime = System.currentTimeMillis();
     //Project key doesn't exist in the map so create a new file
     //Create a file with a filename composed of the contents of the event file itself.
     this.replicatedConfiguration = replicatedEventsCoordinator.getReplicatedConfiguration();
     this.gson = replicatedEventsCoordinator.getGson();
-    this.outputDirectory = replicatedConfiguration.getIncomingReplEventsDirectory();
+    if ( useIncomingDirectory ){
+      this.eventsFinalDirectory = replicatedConfiguration.getIncomingReplEventsDirectory();
+      this.eventsTmpDirectory = replicatedConfiguration.getIncomingTemporaryReplEventsDirectory();
+    }
+    else {
+      this.eventsFinalDirectory = replicatedConfiguration.getOutgoingReplEventsDirectory();
+      this.eventsTmpDirectory = replicatedConfiguration.getOutgoingTemporaryReplEventsDirectory();
+    }
     this.eventFile = getTempEventFile();
-    this.finalEventFileName = originalEventFileName;
     this.fileOutputStream = new FileOutputStream(eventFile);
+    // this final event file may not exist yet, until the atomic rename finally happens, this just points to the location
+    // ahead of time.
+    this.finalEventFile = new File(eventsFinalDirectory, finalEventFileName);
     this.projectName = projectName;
   }
-
 
   public String getProjectName() {
     return projectName;
@@ -77,8 +115,30 @@ public class PersistedEventInformation {
     return fileOutputStream;
   }
 
+  /**
+   * Returns the event file being processed (based off call {@link #getTempEventFile()}.
+   * If you want the final event file - this will only be populated or valid after
+   *   the atomic rename happens {@link #getFinalEventFile()})
+   *
+   * So if we are in the incoming directory it will be a incoming/tmp/tmpEventsBatch-xxx
+   *    file where gerrit reduces a file to only failed or not processed events (before final failed dir)
+   * In outgoing it will be outgoing/tmp/tmpEventsBatch-xxx
+   *    file for events being batched per project to be pickedup and proposed by gitms.
+   * @return
+   */
   public File getEventFile() {
     return eventFile;
+  }
+
+  /**
+   * Returns a file handle to the final event file that will be the final destination once it is atomically renamed, it is not valid
+   * until this operation completes. In the outgoing use case, no file is present until that time, where as in the incoming case it will be
+   * the old original file content, that will be replaced by a reduced set of events after the rename.
+   *
+   * @return
+   */
+  public File getFinalEventFile() {
+    return finalEventFile;
   }
 
   public AtomicInteger getNumEventsWritten() {
@@ -93,16 +153,13 @@ public class PersistedEventInformation {
     isFileOutputStreamClosed = fileOutputStreamClosed;
   }
 
-
-  public String getFinalEventFileName() {
-    return finalEventFileName;
+  public File getEventsFinalDirectory() {
+    return eventsFinalDirectory;
   }
 
-  /* Can be used for testing */
-  public void setFinalEventFileName(String finalEventFileName) {
-    this.finalEventFileName = finalEventFileName;
+  public File getEventsTmpDirectory() {
+    return eventsTmpDirectory;
   }
-
 
   /**
    * Utility method to get a .tmp event file name.
@@ -110,7 +167,7 @@ public class PersistedEventInformation {
    * @throws IOException
    */
   private File getTempEventFile() throws IOException {
-    return File.createTempFile("events-", ".tmp", outputDirectory);
+    return File.createTempFile(TMP_EVENTS_BATCH, ".tmp", eventsTmpDirectory);
   }
 
   /**
@@ -148,11 +205,10 @@ public class PersistedEventInformation {
   /**
    * This is the only method writing events to the event files.
    * write the events-<randomnum>.tmp file, increase the NumEventsWritten and
-   * @param projectName : The name of the project that we are writing events for
    * @param bytes : The bytes for EventWrapper instance
    * @return true if bytes written successfully.
    */
-  public boolean writeEventsToFile(final String projectName, byte[] bytes) {
+  public boolean writeEventsToFile(byte[] bytes) {
     try{
       if(getFileOutputStream() != null) {
 
@@ -161,7 +217,7 @@ public class PersistedEventInformation {
         getNumEventsWritten().incrementAndGet();
 
         logger.atFine().log("Number of events written to the events file [ %s ] for " +
-                "project [ %s ] is currently : [ %d ].", eventFile, projectName, getNumEventsWritten().get() );
+                "project [ %s ] is currently : [ %d ].", eventFile, getProjectName(), getNumEventsWritten().get() );
       }
 
     } catch (IOException e) {
@@ -198,14 +254,14 @@ public class PersistedEventInformation {
       ReplicatorMetrics.totalPublishedLocalEventsByType.add(originalEvent.getEventOrigin());
     }
 
-    return writeEventsToFile(originalEvent.getProjectName(), bytes);
+    return writeEventsToFile(bytes);
   }
 
 
   /**
    * Rename the outgoing events-<randomnum>.tmp file to the unique filename that was created upon
    * construction of the PersistedEventInformation instance.
-   * See {@link PersistedEventInformation#createThisEventsFilename(EventWrapper)} ()} ()} for how
+   * See {@link PersistedEventInformation#createThisEventsFilename(EventWrapper, String)} ()} ()} for how
    * this filename is composed.
    * @return Returns TRUE when it has successfully renamed the temp file to its final named variety(atomically)
    */
@@ -213,17 +269,17 @@ public class PersistedEventInformation {
 
     //The final event file name is set upon construction if we encounter a project that is not
     //in our outgoingEventInformationMap
-    if (Strings.isNullOrEmpty(getFinalEventFileName())) {
-      logger.atSevere().log("RE finalEventFileName was not set correctly, losing events!");
+    if (finalEventFile == null) {
+      logger.atSevere().log("RE finalEventFileName was not set correctly, losing events. Temporary Events file [ %s ]at this location may be used to rerun these events - contact WANdisco support.",
+          getEventFile().getAbsolutePath());
       return false;
     }
 
-    File projectTmpEventFile = getEventFile();
+    final File projectTmpEventFile = getEventFile();
+    final File finalEventFile = getFinalEventFile();
 
-    logger.atFinest().log(".tmp event [ %s ] file for projectName [ %s ] will be renamed to [ %s ]",
-        getProjectName(), projectTmpEventFile, getFinalEventFileName());
-
-    File newFile = new File(outputDirectory, getFinalEventFileName());
+    logger.atFinest().log(".tmp event [ %s ] file for projectName [ %s ] will be renamed to [ %s ] in the parent outgoing directory.",
+        getProjectName(), projectTmpEventFile.getName(), getFinalEventFile().getName());
 
     // Documentation states the following for 'renameTo'
     // * Many aspects of the behavior of this method are inherently
@@ -233,11 +289,13 @@ public class PersistedEventInformation {
     // * already exists. The return value should always be checked to make sure
     // * that the rename operation was successful.
     // We should therefore consider an alternative in future.
-    boolean renamed = projectTmpEventFile.renameTo(newFile);
+    // Note the rename is now also moving the file into the parent location from outgoing/tmp/x to outgoing/y.  As its a subdirectory
+    // it will be on the same filesystem to keep atomic move possible.  While keeping unnecessary temporary files out of the final location.
+    boolean renamed = projectTmpEventFile.renameTo(finalEventFile);
 
     if (!renamed) {
-      logger.atSevere().log("RE Could not rename file to be picked up, losing events! %s",
-          projectTmpEventFile.getAbsolutePath());
+      logger.atSevere().log("RE Could not rename temporary events file [ %s ] to its final location file [ %s ] in the outgoing directory to be processed.  This will result in losing events but they still exist in the temporary file and can be processed if the file correctly moved.  Please rename the temporary file to its final name and location manually.",
+          projectTmpEventFile.getAbsolutePath(), finalEventFile.getAbsolutePath());
       return false;
     }
 
@@ -281,16 +339,16 @@ public class PersistedEventInformation {
    * @param originalEvent
    * @return String containing the new Events filename
    */
-  public String createThisEventsFilename(final EventWrapper originalEvent) throws IOException {
-    // Creating a GerritEventData object from the inner event JSON of the
+  public static String createThisEventsFilename(final EventWrapper originalEvent, final String allProjectsName) throws IOException {
+    // Creating a GerritEventMetadata object from the inner event JSON of the
     // EventWrapper object.
-    GerritEventData eventData = ObjectUtils
-        .createObjectFromJson(originalEvent.getEvent(), GerritEventData.class);
+    GerritEventMetadata eventData = ObjectUtils
+        .createObjectFromJson(originalEvent.getEvent(), GerritEventMetadata.class);
 
     if (eventData == null) {
       logger.atSevere().log("Unable to set event filename, could not create "
-          + "GerritEventData object from JSON %s", originalEvent.getEvent());
-      throw new IOException("Unable to create a new GerritEventData object from the event supplied.");
+          + "GerritEventMetadata object from JSON %s", originalEvent.getEvent());
+      throw new IOException("Unable to create a new GerritEventMetadata object from the event supplied.");
     }
 
     // If there are event types added in future that do not support the
@@ -302,8 +360,7 @@ public class PersistedEventInformation {
               + "Unable to set the event filename using the sha1 of the project name. "
               + "Using All-Projects as the default project, and updating the event data to match",
           originalEvent.getEvent());
-      // lets sort this out.
-//      originalEvent.setProjectName(replicatedConfiguration.getAllProjectsName());
+      originalEvent.setProjectName(allProjectsName);
     }
 
     String eventTimestamp = eventData.getEventTimestamp();
@@ -343,43 +400,48 @@ public class PersistedEventInformation {
         getProjectNameSha1(originalEvent.getProjectName()), objectHash);
   }
 
-
+  /**
+   * NOTE Using a reduced set for toString, equals and hashcode, to help with performance and reduced static output in the logs.
+   * We do not need to output the replicated configuration for every call, or the incoming/outgoing directories.
+   * As this information doesn't change we can safely leave it out, or let another member be the main comparison information like eventFile or numEventsWritten etc.
+   *
+   * @param o
+   * @return
+   */
   @Override
   public boolean equals(Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     PersistedEventInformation that = (PersistedEventInformation) o;
-    return getFirstEventTime() == that.getFirstEventTime() &&
-        isFileOutputStreamClosed() == that.isFileOutputStreamClosed() &&
-        getEventFile().equals(that.getEventFile()) &&
-        getFinalEventFileName().equals(that.getFinalEventFileName()) &&
-        getFileOutputStream().equals(that.getFileOutputStream()) &&
-        getNumEventsWritten().equals(that.getNumEventsWritten()) &&
-        replicatedConfiguration.equals(that.replicatedConfiguration) &&
-        getProjectName().equals(that.getProjectName()) &&
-        outputDirectory.equals(that.outputDirectory) &&
-        gson.equals(that.gson);
+    return firstEventTime == that.firstEventTime &&
+        Objects.equals(eventFile, that.eventFile) &&
+        Objects.equals(finalEventFile, that.finalEventFile) &&
+        Objects.equals(numEventsWritten, that.numEventsWritten) &&
+        Objects.equals(projectName, that.projectName) &&
+        Objects.equals(eventsFinalDirectory, that.eventsFinalDirectory) &&
+        Objects.equals(eventsTmpDirectory, that.eventsTmpDirectory);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(getFirstEventTime(), getEventFile(), getFinalEventFileName(), getFileOutputStream(),
-        isFileOutputStreamClosed(), getNumEventsWritten(), replicatedConfiguration, getProjectName(), outputDirectory, gson);
+    return Objects.hash(firstEventTime, eventFile, finalEventFile, numEventsWritten, projectName, eventsFinalDirectory, eventsTmpDirectory);
   }
 
-
+  /**
+   * Reduced set for toString.  we do not need to output the replicated configuration for every call, or the incoming/outgoing directories
+   * and trying to output the file output stream isn't good.  so this is the actual information we require for each different persistedeventinformation request
+   * If you are interested in the replication configuration it is output on startup and at other times, and it static then for the duration.
+   * @return
+   */
   @Override
   public String toString() {
-    final StringBuilder sb = new StringBuilder("PersistedEventInformation{");
-    sb.append("firstEventTime=").append(firstEventTime);
-    sb.append(", eventFile=").append(eventFile);
-    sb.append(", finalEventFileName='").append(finalEventFileName).append('\'');
-    sb.append(", isFileOutputStreamClosed=").append(isFileOutputStreamClosed);
-    sb.append(", numEventsWritten=").append(numEventsWritten);
-    sb.append(", replicatedConfiguration=").append(replicatedConfiguration);
-    sb.append(", projectName='").append(projectName).append('\'');
-    sb.append(", outputDirectory=").append(outputDirectory).append('\'');
-    sb.append('}');
-    return sb.toString();
+    return new StringJoiner(", ", PersistedEventInformation.class.getSimpleName() + "[", "]")
+        .add("firstEventTime=" + firstEventTime)
+        .add("eventFile=" + eventFile)
+        .add("finalEventFile=" + finalEventFile)
+        .add("numEventsWritten=" + numEventsWritten)
+        .add("projectName='" + projectName + "'")
+        .toString();
   }
+
 }

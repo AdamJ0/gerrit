@@ -20,18 +20,15 @@ import com.google.gerrit.extensions.api.changes.NotifyHandling;
 import com.google.gerrit.extensions.common.AccountInfo;
 import com.google.gerrit.extensions.common.ChangeInfo;
 import com.google.gerrit.extensions.events.HashtagsEditedListener;
-import com.google.gerrit.extensions.events.ReplicatedStreamEvent;
 import com.google.gerrit.reviewdb.client.Change;
 import com.google.gerrit.server.account.AccountState;
 import com.google.gerrit.server.plugincontext.PluginSetContext;
-import com.google.gerrit.server.replication.coordinators.ReplicatedEventsCoordinator;
 import com.google.gwtorm.server.OrmException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import java.sql.Timestamp;
 import java.util.Collection;
 import java.util.Set;
-import java.util.StringJoiner;
 
 @Singleton
 public class HashtagsEdited {
@@ -39,13 +36,11 @@ public class HashtagsEdited {
 
   private final PluginSetContext<HashtagsEditedListener> listeners;
   private final EventUtil util;
-  private final ReplicatedEventsCoordinator replicatedEventsCoordinator;
 
   @Inject
-  public HashtagsEdited(PluginSetContext<HashtagsEditedListener> listeners, EventUtil util, ReplicatedEventsCoordinator replicatedEventsCoordinator) {
+  public HashtagsEdited(PluginSetContext<HashtagsEditedListener> listeners, EventUtil util) {
     this.listeners = listeners;
     this.util = util;
-    this.replicatedEventsCoordinator = replicatedEventsCoordinator;
   }
 
   public void fire(
@@ -61,28 +56,15 @@ public class HashtagsEdited {
     try {
       Event event =
           new Event(
-              util.changeInfo(change), util.accountInfo(editor), hashtags, added, removed, when,
-                  replicatedEventsCoordinator.getThisNodeIdentity());
+              util.changeInfo(change), util.accountInfo(editor), hashtags, added, removed, when);
       listeners.runEach(l -> l.onHashtagsEdited(event));
     } catch (OrmException e) {
       logger.atSevere().withCause(e).log("Couldn't fire event");
     }
   }
 
-  /**
-   * fire stream event off for its respective listeners to pick up.
-   * @param streamEvent HashtagsEditedListener.Event
-   */
-  public void fire(HashtagsEditedListener.Event streamEvent) {
-    if (listeners.isEmpty()) {
-      return;
-    }
-    listeners.runEach(l -> l.onHashtagsEdited(streamEvent));
-  }
-
-
-  @isReplicatedStreamEvent
   private static class Event extends AbstractChangeEvent implements HashtagsEditedListener.Event {
+
     private Collection<String> updatedHashtags;
     private Collection<String> addedHashtags;
     private Collection<String> removedHashtags;
@@ -93,9 +75,8 @@ public class HashtagsEdited {
         Collection<String> updated,
         Collection<String> added,
         Collection<String> removed,
-        Timestamp when,
-        final String nodeIdentity) {
-      super(change, editor, when, NotifyHandling.ALL, nodeIdentity);
+        Timestamp when) {
+      super(change, editor, when, NotifyHandling.ALL);
       this.updatedHashtags = updated;
       this.addedHashtags = added;
       this.removedHashtags = removed;
@@ -114,45 +95,6 @@ public class HashtagsEdited {
     @Override
     public Collection<String> getRemovedHashtags() {
       return removedHashtags;
-    }
-
-    @Override
-    public String nodeIdentity() {
-      return super.getNodeIdentity();
-    }
-
-    @Override
-    public String className() {
-      return this.getClass().getName();
-    }
-
-    @Override
-    public String projectName() {
-      return getChange().project;
-    }
-
-    @Override
-    public void setStreamEventReplicated(boolean replicated) {
-      hasBeenReplicated = replicated;
-    }
-
-    @Override
-    public boolean replicationSuccessful() {
-      return hasBeenReplicated;
-    }
-
-
-    @Override
-    public String toString() {
-      return new StringJoiner(", ", Event.class.getSimpleName() + "[", "]")
-              .add("updatedHashtags=" + getHashtags())
-              .add("addedHashtags=" + getAddedHashtags())
-              .add("removedHashtags=" + getRemovedHashtags())
-              .add("hasBeenReplicated=" + super.hasBeenReplicated)
-              .add("eventTimestamp=" + getEventTimestamp())
-              .add("eventNanoTime=" + getEventNanoTime())
-              .add("nodeIdentity='" + super.getNodeIdentity() + "'")
-              .toString();
     }
   }
 }

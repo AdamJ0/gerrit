@@ -22,7 +22,7 @@ import java.util.Map;
 /** Notified whenever a Reviewer is removed from a change. */
 @ExtensionPoint
 public interface ReviewerDeletedListener {
-  interface Event extends ChangeEvent, ReplicatedStreamEvent {
+  interface Event extends ChangeEvent {
     AccountInfo getReviewer();
 
     String getComment();

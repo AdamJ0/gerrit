@@ -20,7 +20,7 @@ import com.google.gerrit.extensions.common.ChangeInfo;
 /** Notified whenever a Change is reverted via the UI or REST API. */
 @ExtensionPoint
 public interface ChangeRevertedListener {
-  interface Event extends ChangeEvent, ReplicatedStreamEvent {
+  interface Event extends ChangeEvent {
     /** The revert change that was created. */
     ChangeInfo getRevertChange();
   }

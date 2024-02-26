@@ -899,8 +899,8 @@ maven_jar(
 
 maven_jar(
     name = "junit",
-    artifact = "junit:junit:4.12",
-    sha1 = "2973d150c0dc1fefe998f834810d68f278ea58ec",
+    artifact = "junit:junit:4.13.2",
+    sha1 = "8ac9e16d933b6fb43bc7f576336b8f4d7eb5ba12",
 )
 
 maven_jar(
@@ -968,60 +968,60 @@ maven_jar(
     sha1 = "75070c744a8e52a7d17b8b476468580309d5cd09",
 )
 
-JETTY_VERS = "9.4.36.v20210114"
+JETTY_VERS = "9.4.51.v20230217"
 
 maven_jar(
     name = "jetty-servlet",
     artifact = "org.eclipse.jetty:jetty-servlet:" + JETTY_VERS,
-    sha1 = "b189e52a5ee55ae172e4e99e29c5c314f5daf4b9",
+    sha1 = "3ec1be0b1ca49b633dd7de0733d0054bb4763965",
 )
 
 maven_jar(
     name = "jetty-security",
     artifact = "org.eclipse.jetty:jetty-security:" + JETTY_VERS,
-    sha1 = "42030d6ed7dfc0f75818cde0adcf738efc477574",
+    sha1 = "a3342214ce480cc5bb8e74fe7589dd0436a5d903",
 )
 
 maven_jar(
     name = "jetty-servlets",
     artifact = "org.eclipse.jetty:jetty-servlets:" + JETTY_VERS,
-    sha1 = "080d85ab9b82acb0af174ee5b6d5669b4ad3faf2",
+    sha1 = "b056ab57a23034e05339ecddabe4d96cee3c9b8c",
 )
 
 maven_jar(
     name = "jetty-server",
     artifact = "org.eclipse.jetty:jetty-server:" + JETTY_VERS,
-    sha1 = "88a7d342974aadca658e7386e8d0fcc5c0788f41",
+    sha1 = "d0572c8460eb26adf8420e78535d95859c89a936",
 )
 
 maven_jar(
     name = "jetty-jmx",
     artifact = "org.eclipse.jetty:jetty-jmx:" + JETTY_VERS,
-    sha1 = "bb3847eabe085832aeaedd30e872b40931632e54",
+    sha1 = "a69e9b0a223a5f661606f6fb36d3b3fcf6216432",
 )
 
 maven_jar(
     name = "jetty-continuation",
     artifact = "org.eclipse.jetty:jetty-continuation:" + JETTY_VERS,
-    sha1 = "84dcd3bc44258d6e2e552f59c77966c4ed252373",
+    sha1 = "1517d671b74edb64da4bd643092958d5139ec684",
 )
 
 maven_jar(
     name = "jetty-http",
     artifact = "org.eclipse.jetty:jetty-http:" + JETTY_VERS,
-    sha1 = "1eee89a55e04ff94df0f85d95200fc48acb43d86",
+    sha1 = "fe37568aded59dd8e437e0f670fe5f809071fe8f",
 )
 
 maven_jar(
     name = "jetty-io",
     artifact = "org.eclipse.jetty:jetty-io:" + JETTY_VERS,
-    sha1 = "84a8faf9031eb45a5a2ddb7681e22c483d81ab3a",
+    sha1 = "a11a0713b17334a5b6e694602fbd1a9457cb5fdd",
 )
 
 maven_jar(
     name = "jetty-util",
     artifact = "org.eclipse.jetty:jetty-util:" + JETTY_VERS,
-    sha1 = "925257fbcca6b501a25252c7447dbedb021f7404",
+    sha1 = "a11df06530a3a28c9af7ff336730a2f8e18e7205",
 )
 
 maven_jar(
@@ -1051,8 +1051,8 @@ maven_jar(
 
 maven_jar(
     name = "commons-io",
-    artifact = "commons-io:commons-io:2.6",
-    sha1 = "815893df5f31da2ece4040fe0a12fd44b577afaf",
+    artifact = "commons-io:commons-io:2.11.0",
+    sha1 = "a2503f302b11ebde7ebc3df41daebe0e4eea3689",
 )
 
 maven_jar(
@@ -1087,7 +1087,7 @@ maven_jar(
 )
 
 # WANdisco maven assets
-_GERRIT_GITMS_VERSION = "1.1.2.1-SNAPSHOT"
+_GERRIT_GITMS_VERSION = "2.0.0.1"
 
 # We don't use the sha1 below when we are in SNAPSHOT
 # Comment sha1 back in for release versions

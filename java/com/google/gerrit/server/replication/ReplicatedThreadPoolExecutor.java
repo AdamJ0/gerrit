@@ -83,6 +83,7 @@ public class ReplicatedThreadPoolExecutor extends ThreadPoolExecutor {
 
   }
 
+  @Override
   protected void terminated() {
     try {
       // we could do work here around time, that would cover success and failure timings, but for now leave as is.

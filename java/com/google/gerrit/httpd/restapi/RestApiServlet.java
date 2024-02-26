@@ -54,6 +54,7 @@ import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
@@ -74,6 +75,7 @@ import com.google.gerrit.extensions.restapi.AuthException;
 import com.google.gerrit.extensions.restapi.BadRequestException;
 import com.google.gerrit.extensions.restapi.BinaryResult;
 import com.google.gerrit.extensions.restapi.CacheControl;
+import com.google.gerrit.extensions.restapi.Cacheability;
 import com.google.gerrit.extensions.restapi.DefaultInput;
 import com.google.gerrit.extensions.restapi.ETagView;
 import com.google.gerrit.extensions.restapi.IdString;
@@ -94,6 +96,7 @@ import com.google.gerrit.extensions.restapi.RestCollectionView;
 import com.google.gerrit.extensions.restapi.RestModifyView;
 import com.google.gerrit.extensions.restapi.RestReadView;
 import com.google.gerrit.extensions.restapi.RestResource;
+import com.google.gerrit.extensions.restapi.RestResource.HasETag;
 import com.google.gerrit.extensions.restapi.RestView;
 import com.google.gerrit.extensions.restapi.TopLevelResource;
 import com.google.gerrit.extensions.restapi.UnprocessableEntityException;
@@ -152,14 +155,17 @@ import java.lang.reflect.Type;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
@@ -287,9 +293,10 @@ public class RestApiServlet extends HttpServlet {
     Object inputRequestBody = null;
     RestResource rsrc = TopLevelResource.INSTANCE;
     ViewData viewData = null;
+    Optional<String> etag = Optional.empty();
 
     try (TraceContext traceContext = enableTracing(req, res)) {
-      try (PerThreadCache ignored = PerThreadCache.create()) {
+      try (PerThreadCache ignored = PerThreadCache.create(req)) {
         logger.atFinest().log(
             "Received REST request: %s %s (parameters: %s)",
             req.getMethod(), req.getRequestURI(), getParameterNames(req));
@@ -444,7 +451,10 @@ public class RestApiServlet extends HttpServlet {
           checkRequiresCapability(viewData);
         }
 
-        if (notModified(req, rsrc, viewData.view)) {
+        if (isCacheableWithETag(req, rsrc, viewData.view)) {
+          etag = getETag(rsrc, viewData.view);
+        }
+        if (etag.isPresent() && notModified(req, rsrc, etag.get())) {
           logger.atFinest().log("REST call succeeded: %d", SC_NOT_MODIFIED);
           res.sendError(SC_NOT_MODIFIED);
           return;
@@ -516,7 +526,15 @@ public class RestApiServlet extends HttpServlet {
           @SuppressWarnings("rawtypes")
           Response<?> r = (Response) result;
           status = r.statusCode();
-          configureCaching(req, res, rsrc, viewData.view, r.caching());
+          Optional<String> currentEtag = etag;
+          RestResource currentRsrc = rsrc;
+          RestView<RestResource> currentView = viewData.view;
+          configureCaching(
+              req,
+              res,
+              rsrc,
+              r.caching(),
+              () -> currentEtag.isPresent() ? currentEtag : getETag(currentRsrc, currentView));
         } else if (result instanceof Response.Redirect) {
           CacheHeaders.setNotCacheable(res);
           String location = ((Response.Redirect) result).location();
@@ -752,24 +770,57 @@ public class RestApiServlet extends HttpServlet {
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
-  private static boolean notModified(
+  private Optional<String> getETag(RestResource rsrc, RestView<RestResource> view) {
+    if (view instanceof ETagView) {
+      return Optional.ofNullable(((ETagView) view).getETag(rsrc));
+    }
+
+    if (rsrc instanceof RestResource.HasETag) {
+      return Optional.ofNullable(((RestResource.HasETag) rsrc).getETag());
+    }
+    return Optional.empty();
+  }
+
+  static boolean isCacheableWithETag(
       HttpServletRequest req, RestResource rsrc, RestView<RestResource> view) {
+    if (!isRead(req)
+        || rsrc instanceof RestResource.HasLastModified
+        || !(view instanceof ETagView || rsrc instanceof HasETag)
+        || requestHeadersHasAnyValue(req, HttpHeaders.PRAGMA, "no-cache")
+        || requestHeadersHasAnyValue(req, HttpHeaders.CACHE_CONTROL, "no-cache", "max-age=0")) {
+      return false;
+    }
+
+    boolean rsrcIsCacheable =
+        (rsrc instanceof Cacheability) && (((Cacheability) rsrc).isCacheable());
+    boolean viewIsCacheable =
+        (view instanceof Cacheability) && (((Cacheability) view).isCacheable());
+
+    return rsrcIsCacheable && viewIsCacheable;
+  }
+
+  private static boolean requestHeadersHasAnyValue(
+      HttpServletRequest req, String headerName, String... headerValues) {
+    Enumeration<String> headers = req.getHeaders(headerName);
+    while (headers.hasMoreElements()) {
+      String value = headers.nextElement();
+      for (String hdr : headerValues) {
+        if (value.equalsIgnoreCase(hdr)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private static boolean notModified(HttpServletRequest req, RestResource rsrc, String etag) {
     if (!isRead(req)) {
       return false;
     }
 
-    if (view instanceof ETagView) {
-      String have = req.getHeader(HttpHeaders.IF_NONE_MATCH);
-      if (have != null) {
-        return have.equals(((ETagView) view).getETag(rsrc));
-      }
-    }
-
-    if (rsrc instanceof RestResource.HasETag) {
-      String have = req.getHeader(HttpHeaders.IF_NONE_MATCH);
-      if (have != null) {
-        return have.equals(((RestResource.HasETag) rsrc).getETag());
-      }
+    String have = req.getHeader(HttpHeaders.IF_NONE_MATCH);
+    if (have != null) {
+      return have.equals(etag);
     }
 
     if (rsrc instanceof RestResource.HasLastModified) {
@@ -783,7 +834,11 @@ public class RestApiServlet extends HttpServlet {
   }
 
   private static <R extends RestResource> void configureCaching(
-      HttpServletRequest req, HttpServletResponse res, R rsrc, RestView<R> view, CacheControl c) {
+      HttpServletRequest req,
+      HttpServletResponse res,
+      R rsrc,
+      CacheControl c,
+      Supplier<Optional<String>> etag) {
     if (isRead(req)) {
       switch (c.getType()) {
         case NONE:
@@ -791,11 +846,11 @@ public class RestApiServlet extends HttpServlet {
           CacheHeaders.setNotCacheable(res);
           break;
         case PRIVATE:
-          addResourceStateHeaders(res, rsrc, view);
+          addResourceStateHeaders(res, rsrc, etag.get());
           CacheHeaders.setCacheablePrivate(res, c.getAge(), c.getUnit(), c.isMustRevalidate());
           break;
         case PUBLIC:
-          addResourceStateHeaders(res, rsrc, view);
+          addResourceStateHeaders(res, rsrc, etag.get());
           CacheHeaders.setCacheable(req, res, c.getAge(), c.getUnit(), c.isMustRevalidate());
           break;
       }
@@ -805,12 +860,8 @@ public class RestApiServlet extends HttpServlet {
   }
 
   private static <R extends RestResource> void addResourceStateHeaders(
-      HttpServletResponse res, R rsrc, RestView<R> view) {
-    if (view instanceof ETagView) {
-      res.setHeader(HttpHeaders.ETAG, ((ETagView<R>) view).getETag(rsrc));
-    } else if (rsrc instanceof RestResource.HasETag) {
-      res.setHeader(HttpHeaders.ETAG, ((RestResource.HasETag) rsrc).getETag());
-    }
+      HttpServletResponse res, R rsrc, Optional<String> etagOpt) {
+    etagOpt.ifPresent(etag -> res.setHeader(HttpHeaders.ETAG, etag));
     if (rsrc instanceof RestResource.HasLastModified) {
       res.setDateHeader(
           HttpHeaders.LAST_MODIFIED,
@@ -1438,7 +1489,7 @@ public class RestApiServlet extends HttpServlet {
     if (err != null) {
       RequestUtil.setErrorTraceAttribute(req, err);
     }
-    configureCaching(req, res, null, null, c);
+    configureCaching(req, res, null, c, Suppliers.ofInstance(Optional.empty()));
     checkArgument(statusCode >= 400, "non-error status: %s", statusCode);
     res.setStatus(statusCode);
     logger.atFinest().withCause(err).log("REST call failed: %d", statusCode);

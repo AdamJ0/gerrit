@@ -19,7 +19,7 @@ import com.google.gerrit.extensions.annotations.ExtensionPoint;
 /** Notified whenever the HEAD of a project is updated. */
 @ExtensionPoint
 public interface HeadUpdatedListener {
-  interface Event extends ProjectEvent, ReplicatedStreamEvent {
+  interface Event extends ProjectEvent {
     String getOldHeadName();
 
     String getNewHeadName();

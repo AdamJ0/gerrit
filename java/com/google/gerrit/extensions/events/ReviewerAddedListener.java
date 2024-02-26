@@ -21,7 +21,7 @@ import java.util.List;
 /** Notified whenever one or more Reviewers are added to a change. */
 @ExtensionPoint
 public interface ReviewerAddedListener {
-  interface Event extends ChangeEvent, ReplicatedStreamEvent {
+  interface Event extends ChangeEvent {
     List<AccountInfo> getReviewers();
   }
 

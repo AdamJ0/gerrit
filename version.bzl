@@ -5,4 +5,4 @@
 # Please note this must match the WD Tag when we release or build,
 # so that assets and where we push them match the version in the build.
 #
-GERRIT_VERSION = "2.16.28-RP-1.10.3.1-SNAPSHOT"
+GERRIT_VERSION = "2.16.28-RP-1.11.0.2"

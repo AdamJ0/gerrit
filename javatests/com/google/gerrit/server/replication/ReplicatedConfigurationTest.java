@@ -8,7 +8,15 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 import java.util.Properties;
-import static com.google.gerrit.server.replication.configuration.ReplicationConstants.*;
+
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.DEFAULT_MAX_LOGGING_PERIOD_VALUE_SECS;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_EVENTS_BACKOFF_CEILING_PERIOD;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_EVENTS_BACKOFF_INITIAL_PERIOD;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_EVENT_TYPES_TO_BE_SKIPPED;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_MAX_EVENTS_TO_APPEND_BEFORE_PROPOSING;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_MAX_MS_TO_WAIT_BEFORE_PROPOSING_EVENTS;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_MAX_NUM_EVENTS_RETRIES;
+import static com.google.gerrit.server.replication.configuration.ReplicationConstants.GERRIT_REPLICATED_EVENT_WORKER_POOL_SIZE;
 
 public class ReplicatedConfigurationTest extends AbstractReplicationSetup {
 

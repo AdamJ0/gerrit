@@ -240,7 +240,8 @@ function remove_property() {
 function remove_legacy_config_from_application_properties() {
   remove_property "gerrit.replicated.events.enabled.receive.distinct" \
                   "gerrit.replicated.events.enabled.local.republish.distinct" \
-                  "gerrit.replicated.events.distinct.prefix"
+                  "gerrit.replicated.events.distinct.prefix" \
+                  "gerrit.replicated.cache.enabled"
 }
 
 ## With the GitMS root location, we can look up a lot of information
@@ -258,7 +259,6 @@ function fetch_config_from_application_properties() {
   GITMS_SSL_REST_PORT=$(fetch_property "jetty.https.port")
   GERRIT_REPLICATED_EVENTS_SEND=$(fetch_property "gerrit.replicated.events.enabled.send")
   GERRIT_REPLICATED_EVENTS_RECEIVE_ORIGINAL=$(fetch_property "gerrit.replicated.events.enabled.receive.original")
-  GERRIT_REPLICATED_CACHE_ENABLED=$(fetch_property "gerrit.replicated.cache.enabled")
   GERRIT_REPLICATED_CACHE_NAMES_NOT_TO_RELOAD=$(fetch_property "gerrit.replicated.cache.names.not.to.reload")
   GERRIT_HELPER_SCRIPT_INSTALL_DIR=$(fetch_property "gerrit.helper.scripts.install.directory")
 }
@@ -836,12 +836,6 @@ function get_config_from_user() {
 
   set_property "gerrit.replicated.events.enabled.receive.original" "$GERRIT_REPLICATED_EVENTS_RECEIVE_ORIGINAL"
 
-  if [[ -z "$GERRIT_REPLICATED_CACHE_ENABLED" ]]; then
-    GERRIT_REPLICATED_CACHE_ENABLED="true"
-  else
-    info " Gerrit Replicated Cache enabled: $GERRIT_REPLICATED_CACHE_ENABLED"
-  fi
-  set_property "gerrit.replicated.cache.enabled" "$GERRIT_REPLICATED_CACHE_ENABLED"
 
   ## Array of caches we do not wish to reload.  We need to deal with fresh install / upgrade scenarios and user changes to this field.
   CACHE_NAMES_NOT_TO_RELOAD=(changes projects groups_byinclude groups_byname groups_byuuid groups_external groups_members groups_bysubgroup groups_bymember)
@@ -1360,7 +1354,6 @@ function check_for_non_interactive_mode() {
     local tmp_gerrit_events_path=$(fetch_property "gerrit.events.basepath")
     local tmp_gerrit_replicated_events_send=$(fetch_property "gerrit.replicated.events.enabled.send")
     local tmp_gerrit_replicated_events_receive_original=$(fetch_property "gerrit.replicated.events.enabled.receive.original")
-    local tmp_gerrit_replicated_cache_enabled=$(fetch_property "gerrit.replicated.cache.enabled")
     local tmp_gerrit_replicated_cache_names_not_to_reload=$(fetch_property "gerrit.replicated.cache.names.not.to.reload")
     local tmp_gerrit_helper_script_install_directory=$(fetch_property "gerrit.helper.scripts.install.directory")
 
@@ -1394,9 +1387,6 @@ function check_for_non_interactive_mode() {
       GERRIT_REPLICATED_EVENTS_RECEIVE_ORIGINAL="$tmp_gerrit_replicated_events_receive_original"
     fi
 
-    if [[ ! -z "$tmp_gerrit_replicated_cache_enabled" ]]; then
-      GERRIT_REPLICATED_CACHE_ENABLED="$tmp_gerrit_replicated_cache_enabled"
-    fi
 
     if [[ ! -z "$tmp_gerrit_replicated_cache_names_not_to_reload" ]]; then
       GERRIT_REPLICATED_CACHE_NAMES_NOT_TO_RELOAD="$tmp_gerrit_replicated_cache_names_not_to_reload"
@@ -1410,7 +1400,7 @@ function check_for_non_interactive_mode() {
     if [[ ! -z "$GERRIT_ROOT" && ! -z "$GERRIT_RPGROUP_ID"
       && ! -z "$GERRIT_REPO_HOME" && ! -z "$GERRIT_EVENTS_PATH"
       && ! -z "$DELETED_REPO_DIRECTORY" && ! -z "$GERRIT_REPLICATED_EVENTS_SEND"
-      && ! -z "$GERRIT_REPLICATED_EVENTS_RECEIVE_ORIGINAL" && ! -z "$GERRIT_REPLICATED_CACHE_ENABLED"
+      && ! -z "$GERRIT_REPLICATED_EVENTS_RECEIVE_ORIGINAL"
       && ! -z "$GERRIT_REPLICATED_CACHE_NAMES_NOT_TO_RELOAD" && ! -z "$GERRIT_HELPER_SCRIPT_INSTALL_DIR" ]]; then
 
       ## On an upgrade, some extra variables must be set. If they are not, non-interactive
@@ -1564,7 +1554,6 @@ if [[ "$NON_INTERACTIVE" == "1" ]]; then
   echo "GERRIT_EVENTS_PATH: $GERRIT_EVENTS_PATH"
   echo "GERRIT_REPLICATED_EVENTS_SEND: $GERRIT_REPLICATED_EVENTS_SEND"
   echo "GERRIT_REPLICATED_EVENTS_RECEIVE_ORIGINAL: $GERRIT_REPLICATED_EVENTS_RECEIVE_ORIGINAL"
-  echo "GERRIT_REPLICATED_CACHE_ENABLED: $GERRIT_REPLICATED_CACHE_ENABLED"
   echo "GERRIT_REPLICATED_CACHE_NAMES_NOT_TO_RELOAD: $GERRIT_REPLICATED_CACHE_NAMES_NOT_TO_RELOAD"
   echo "BACKUP_DIR: $BACKUP_DIR"
   echo "GERRIT_HELPER_SCRIPT_INSTALL_DIR: $GERRIT_HELPER_SCRIPT_INSTALL_DIR"

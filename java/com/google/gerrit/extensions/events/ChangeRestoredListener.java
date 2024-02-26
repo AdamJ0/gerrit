@@ -19,7 +19,7 @@ import com.google.gerrit.extensions.annotations.ExtensionPoint;
 /** Notified whenever a Change is restored. */
 @ExtensionPoint
 public interface ChangeRestoredListener {
-  interface Event extends RevisionEvent, ReplicatedStreamEvent {
+  interface Event extends RevisionEvent {
     String getReason();
   }
 

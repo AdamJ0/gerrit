@@ -1,11 +1,8 @@
 package com.google.gerrit.server.replication.coordinators;
 
 import com.google.gerrit.index.project.ProjectIndexer;
-import com.google.gerrit.server.events.EventBroker;
-import com.google.gerrit.server.replication.streamlistener.ReplicatedStreamEventsApiListener;
 import com.google.gerrit.server.index.group.GroupIndexer;
 import com.google.gerrit.server.notedb.ChangeNotes;
-import com.google.gerrit.server.replication.ReplicatedEventRequestScope;
 import com.google.gerrit.server.replication.configuration.ReplicatedConfiguration;
 import com.google.gerrit.server.replication.ReplicatedScheduling;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingAccountBaseIndexEventsFeed;
@@ -13,7 +10,7 @@ import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingCacheEventsF
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingIndexEventsFeed;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingProjectEventsFeed;
 import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingProjectIndexEventsFeed;
-import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingStreamEventsFeed;
+import com.google.gerrit.server.replication.feeds.ReplicatedOutgoingServerEventsFeed;
 import com.google.gerrit.server.replication.processors.ReplicatedEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingAccountGroupIndexEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingAccountUserIndexEventProcessor;
@@ -21,6 +18,7 @@ import com.google.gerrit.server.replication.processors.ReplicatedIncomingCacheEv
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingIndexEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingProjectEventProcessor;
 import com.google.gerrit.server.replication.processors.ReplicatedIncomingProjectIndexEventProcessor;
+import com.google.gerrit.server.replication.processors.ReplicatedIncomingServerEventProcessor;
 import com.google.gerrit.server.replication.workers.ReplicatedIncomingEventWorker;
 import com.google.gerrit.server.replication.workers.ReplicatedOutgoingEventWorker;
 import com.google.gerrit.extensions.events.LifecycleListener;
@@ -52,8 +50,6 @@ public interface ReplicatedEventsCoordinator extends SysInjectable, LifecycleLis
 
   Gson getGson();
 
-  EventBroker getEventBroker();
-
   GitRepositoryManager getGitRepositoryManager();
 
   Map<EventWrapper.Originator, ReplicatedEventProcessor> getReplicatedProcessors();
@@ -72,9 +68,6 @@ public interface ReplicatedEventsCoordinator extends SysInjectable, LifecycleLis
 
   void queueEventForReplication(EventWrapper event);
 
-  ReplicatedEventRequestScope getReplicatedEventRequestScope();
-
-  ReplicatedStreamEventsApiListener getReplicatedStreamEventsApiListener();
 
   /* Processors */
   ReplicatedIncomingIndexEventProcessor getReplicatedIncomingIndexEventProcessor();
@@ -82,6 +75,8 @@ public interface ReplicatedEventsCoordinator extends SysInjectable, LifecycleLis
   ReplicatedIncomingAccountUserIndexEventProcessor getReplicatedIncomingAccountUserIndexEventProcessor();
 
   ReplicatedIncomingAccountGroupIndexEventProcessor getReplicatedIncomingAccountGroupIndexEventProcessor();
+
+  ReplicatedIncomingServerEventProcessor getReplicatedIncomingServerEventProcessor();
 
   ReplicatedIncomingCacheEventProcessor getReplicatedIncomingCacheEventProcessor();
 
@@ -102,7 +97,8 @@ public interface ReplicatedEventsCoordinator extends SysInjectable, LifecycleLis
 
   ReplicatedOutgoingProjectIndexEventsFeed getReplicatedOutgoingProjectIndexEventsFeed();
 
-  ReplicatedOutgoingStreamEventsFeed getReplicatedOutgoingStreamEventsFeed();
+  ReplicatedOutgoingServerEventsFeed getReplicatedOutgoingServerEventsFeed();
+
 
   /* Workers */
   ReplicatedIncomingEventWorker getReplicatedIncomingEventWorker();

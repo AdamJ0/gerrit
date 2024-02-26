@@ -98,6 +98,9 @@ public class Reindex extends SiteProgram {
     dbManager.add(dbInjector);
     dbManager.start();
 
+    // GER-1889: We cannot allow the plugin environment to copy instance information when in a shared context.
+    PluginGuiceEnvironment.setAllowCopyOfReplicatedCoordinatorInstance(false);
+    
     sysInjector = createSysInjector();
     sysInjector.getInstance(PluginGuiceEnvironment.class).setDbCfgInjector(dbInjector, cfgInjector);
     LifecycleManager sysManager = new LifecycleManager();

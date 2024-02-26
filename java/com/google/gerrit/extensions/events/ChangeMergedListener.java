@@ -19,7 +19,7 @@ import com.google.gerrit.extensions.annotations.ExtensionPoint;
 /** Notified whenever a Change is merged. */
 @ExtensionPoint
 public interface ChangeMergedListener {
-  interface Event extends RevisionEvent, ReplicatedStreamEvent {
+  interface Event extends RevisionEvent {
     /**
      * Represents the merged Revision when the submit strategy is cherry-pick or
      * rebase-if-necessary.

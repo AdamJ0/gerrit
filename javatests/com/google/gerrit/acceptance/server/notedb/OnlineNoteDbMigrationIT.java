@@ -54,6 +54,7 @@ import com.google.gerrit.reviewdb.server.ReviewDb;
 import com.google.gerrit.server.CommentsUtil;
 import com.google.gerrit.server.Sequences;
 import com.google.gerrit.server.config.SitePaths;
+import com.google.gerrit.server.git.LocalDiskRepositoryManager;
 import com.google.gerrit.server.notedb.ChangeBundle;
 import com.google.gerrit.server.notedb.ChangeBundleReader;
 import com.google.gerrit.server.notedb.NoteDbChangeState;
@@ -89,6 +90,7 @@ import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.RefUpdate;
 import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.lib.RepositoryCache;
 import org.eclipse.jgit.lib.RepositoryCache.FileKey;
 import org.eclipse.jgit.storage.file.FileBasedConfig;
 import org.eclipse.jgit.util.FS;
@@ -560,21 +562,34 @@ public class OnlineNoteDbMigrationIT extends AbstractDaemonTest {
 
     try {
       // TODO(davido): Find an easier way to wipe out a repository from the file system.
+      FileKey location = FileKey.lenient(
+          sitePaths.resolve(cfg.getString("gerrit", null, "basePath"))
+              .resolve(p2.get())
+              .toFile(),
+          FS.DETECTED);
+
       MoreFiles.deleteRecursively(
-              FileKey.lenient(
-                      sitePaths
-                              .resolve(cfg.getString("gerrit", null, "basePath"))
-                              .resolve(p2.get())
-                              .toFile(),
-                      FS.DETECTED)
-                     .getFile()
-                     .toPath(),
+              location.getFile().toPath(),
               RecursiveDeleteOption.ALLOW_INSECURE);
+
+      // Clear the repository cache entry for p2 right away to ensure we don't get given a stale reference
+      // for the previously deleted repository.
+      RepositoryCache.unregister(location);
+
     } catch (IOException e) {
       // The recursive delete above occasionally trips over gc.log.lock. deleteRecursively reads the attributes of
       // each file it's about to delete, but if a gc is in progress short-lived files might interfere. No need to
       // fail the test if this intermittent exception is thrown, just log it.
       System.err.println("Failed to delete some files during test: " + e.getMessage());
+    }
+
+    // Deleting the repository on a running server does not quite simulate the
+    // issue reported in https://issues.gerritcodereview.com/issues/40011744.
+    // Flushing the locations cache is a better simulation of the scenario
+    // as the cache wouldn't contain the non-existent repository location when
+    // migration starts.
+    if (repoManager instanceof LocalDiskRepositoryManager) {
+      ((LocalDiskRepositoryManager) repoManager).clearLocationCache();
     }
 
     migrate(b -> b);
